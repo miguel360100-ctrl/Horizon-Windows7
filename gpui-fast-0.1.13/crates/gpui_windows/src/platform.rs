@@ -17,7 +17,6 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use smallvec::SmallVec;
 use windows::{
-    UI::ViewManagement::UISettings,
     Win32::{
         Foundation::*,
         Graphics::{Direct3D11::ID3D11Device, Gdi::*},
@@ -1742,8 +1741,9 @@ fn load_icon() -> Result<HICON> {
 
 #[inline]
 fn should_auto_hide_scrollbars() -> Result<bool> {
-    let ui_settings = UISettings::new()?;
-    Ok(ui_settings.AutoHideScrollBars()?)
+    // Windows Runtime UISettings is unavailable on Windows 7. Use the
+    // platform-neutral scrollbar behavior instead of importing WinRT APIs.
+    Ok(false)
 }
 
 fn check_device_lost(device: &ID3D11Device) -> bool {
