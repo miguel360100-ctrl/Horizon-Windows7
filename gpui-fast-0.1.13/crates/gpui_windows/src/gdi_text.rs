@@ -122,7 +122,7 @@ impl GdiTextSystem {
                     GGI_MARK_NONEXISTING_GLYPHS,
                 )
             };
-            if result == GDI_ERROR || indices.is_empty() || indices[0] == 0xFFFF {
+            if result == u32::MAX || indices.is_empty() || indices[0] == 0xFFFF {
                 return Ok(None);
             }
             // GDI's legacy mapper returns one glyph per UTF-16 code unit. A
