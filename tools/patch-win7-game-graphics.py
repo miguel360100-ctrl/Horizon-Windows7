@@ -128,17 +128,19 @@ if gfx.count(old_order) != 1:
     raise SystemExit("Win7 backend order: expected one DX12 selection block")
 gfx = gfx.replace(old_order, new_order, 1)
 
-old_doc = """/// device. api is the player's choice (GraphicsApi::with_env applied);
-/// os is std::env::consts::OS; wgpu_backend: whether WGPU_BACKEND is set,
+old_doc = """/// device. `api` is the player's choice (`GraphicsApi::with_env` applied);
+/// `os` is `std::env::consts::OS`; `wgpu_backend`: whether `WGPU_BACKEND` is set,
 /// which picks the backends itself. Auto tries Vulkan, then DirectX 12 on Windows,
 /// then OpenGL (Windows and Linux) for GPUs with neither driver, each when the one
 /// before has no surface, adapter or device. A native crash in the driver can't be
-/// caught in the game; the launcher switches the setting to DirectX 12 after one"""
-new_doc = """/// device. api is the player's choice (GraphicsApi::with_env applied);
-/// os is std::env::consts::OS; wgpu_backend: whether WGPU_BACKEND is set,
+/// caught in the game; the launcher switches the setting to DirectX 12 after one at
+/// the renderer's start (#746). macOS has Metal only."""
+new_doc = """/// device. `api` is the player's choice (`GraphicsApi::with_env` applied);
+/// `os` is `std::env::consts::OS`; `wgpu_backend`: whether `WGPU_BACKEND` is set,
 /// which picks the backends itself. The Windows 7 build tries Vulkan, then OpenGL;
 /// other platforms retain their own backend order. A native crash in the driver
-/// can't be caught in the game; the launcher switches the setting to OpenGL after one"""
+/// can't be caught in the game; the launcher switches the setting to OpenGL after one at
+/// the renderer's start (#746). macOS has Metal only.
 if gfx.count(old_doc) != 1:
     raise SystemExit("Win7 backend documentation: expected one DX12 passage")
 gfx = gfx.replace(old_doc, new_doc, 1)
