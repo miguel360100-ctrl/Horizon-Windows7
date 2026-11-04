@@ -15,7 +15,7 @@ use gpui::*;
 use parking_lot::RwLock;
 use windows::{
     Win32::{
-        Foundation::{HANDLE, SIZE},
+        Foundation::HANDLE,
         Graphics::Gdi::*,
     },
     core::PCWSTR,
@@ -28,7 +28,7 @@ const DEFAULT_FAMILY: &str = "Segoe UI";
 struct GdiState {
     fonts: Vec<Font>,
     font_ids: HashMap<Font, FontId>,
-    private_font_resources: Vec<isize>,
+    private_font_resources: Vec<HANDLE>,
 }
 
 pub(crate) struct GdiTextSystem {
@@ -113,7 +113,8 @@ impl GdiTextSystem {
 
     fn lookup_glyph(font: &Font, ch: char) -> Option<GlyphId> {
         with_font(font, BASE_EM_SIZE as f32, |dc, _| {
-            let utf16: Vec<u16> = ch.encode_utf16(&mut [0; 2]).to_vec();
+            let mut encoded = [0u16; 2];
+            let utf16: Vec<u16> = ch.encode_utf16(&mut encoded).to_vec();
             let mut indices = vec![0u16; utf16.len()];
             let result = unsafe {
                 GetGlyphIndicesW(
@@ -181,7 +182,6 @@ impl GdiTextSystem {
                 let units = ch.len_utf16();
                 let end = (utf16_offset + units).min(utf16.len());
                 let extent = Self::measure_text(dc, &utf16[..end])?;
-                let width = extent.cx - previous_width;
                 let glyph_id = if units == 1 && indices[utf16_offset] != 0xFFFF {
                     indices[utf16_offset] as u32
                 } else {
@@ -199,7 +199,6 @@ impl GdiTextSystem {
                 });
                 previous_width = extent.cx;
                 utf16_offset = end;
-                let _ = width;
             }
 
             let mut metrics = TEXTMETRICW::default();
@@ -227,7 +226,7 @@ impl Drop for GdiTextSystem {
     fn drop(&mut self) {
         for resource in self.state.get_mut().private_font_resources.drain(..) {
             unsafe {
-                RemoveFontMemResourceEx(HANDLE(resource as _));
+                RemoveFontMemResourceEx(resource);
             }
         }
     }
@@ -252,7 +251,7 @@ impl PlatformTextSystem for GdiTextSystem {
             if handle.is_invalid() {
                 return Err(anyhow!("AddFontMemResourceEx failed to register an embedded font"));
             }
-            state.private_font_resources.push(handle.0 as isize);
+            state.private_font_resources.push(handle);
         }
         Ok(())
     }
@@ -494,7 +493,7 @@ fn with_font<T>(
         return Err(anyhow!("GetDC failed for GDI text rendering"));
     }
 
-    let dpi = unsafe { GetDeviceCaps(dc, LOGPIXELSX) };
+    let dpi = unsafe { GetDeviceCaps(Some(dc), LOGPIXELSX) };
     let dpi_scale = if dpi > 0 {
         dpi as f32 / 96.0
     } else {
@@ -512,10 +511,11 @@ fn with_font<T>(
     } else {
         descriptor.family.as_str()
     };
+    let face_name_len = logfont.lfFaceName.len().saturating_sub(1);
     for (target, source) in logfont
         .lfFaceName
         .iter_mut()
-        .take(logfont.lfFaceName.len().saturating_sub(1))
+        .take(face_name_len)
         .zip(family.encode_utf16())
     {
         *target = source;
