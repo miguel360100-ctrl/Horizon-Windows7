@@ -32,7 +32,7 @@ replace_once(
     if let (Some(requested), Some(package_base)) = (requested, extras.base.as_deref()) {
         if requested != package_base {
             return Err(format!(
-                "This Windows 7 build was compiled for {package_base}, not {requested}.                  Install and select {package_base} before importing it."
+                "This Windows 7 build was compiled for {package_base}, not {requested}. Install and select {package_base} before importing it."
             ));
         }
     }
@@ -130,7 +130,7 @@ fn extras_from_zip<R: Read + Seek>(
             inner = Some((i, name));
         }
     }
-    if let Some(base) = extras.base.as_deref() {
+    if extras.base.is_some() {
         for expected in &names {
             if !extras.helpers.iter().any(|(found, _)| found == expected) {
                 return Err(format!("{file}: {PACKAGE_METADATA} declares a complete Win7 package, but {expected} is missing"));
@@ -139,7 +139,6 @@ fn extras_from_zip<R: Read + Seek>(
         if extras.helpers.len() != names.len() {
             return Err(format!("{file}: {PACKAGE_METADATA} has an unexpected companion executable"));
         }
-        let _ = base;
         #[cfg(windows)]
         for (name, bytes) in &extras.helpers {
             if !bytes.starts_with(b"MZ") {
@@ -267,7 +266,7 @@ test = r'''    #[test]
         let options = zip::write::SimpleFileOptions::default();
         zip.start_file(format!("bin/{CLIENT}"), options).unwrap();
         zip.write_all(&program(b"win7 game")).unwrap();
-        let payloads: [&[u8]; 3] = [b"win7 ctl", b"win7 prepare", b"win7 server"];
+        let payloads: [&[u8]; 3] = [b"MZwin7 ctl", b"MZwin7 prepare", b"MZwin7 server"];
         for (name, body) in names.iter().zip(payloads) {
             zip.start_file(format!("bin/{name}"), options).unwrap();
             zip.write_all(body).unwrap();
