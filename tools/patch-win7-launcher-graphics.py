@@ -12,8 +12,8 @@ def replace_once(source: str, old: str, new: str, label: str) -> str:
         raise SystemExit(f"{label}: expected one source match, found {count}")
     return source.replace(old, new, 1)
 
-old_fn = '''/// Sets \`graphicsApi:dx12\` in \`home\`'s graphics settings when it is unset or \`auto\`, keeping
-/// every other line. True when it changed; a player's own \`vulkan\` or \`dx12\` stays.
+old_fn = '''/// Sets `graphicsApi:dx12` in `home`'s graphics settings when it is unset or `auto`, keeping
+/// every other line. True when it changed; a player's own `vulkan` or `dx12` stays.
 pub fn switch_to_dx12(home: &Path) -> Result<bool, String> {
     let path = home.join(GRAPHICS_FILE);
     let text = match fs::read_to_string(&path) {
@@ -43,7 +43,7 @@ pub fn switch_to_dx12(home: &Path) -> Result<bool, String> {
     Ok(true)
 }'''
 
-new_fn = '''/// Sets \`graphicsApi:opengl\` in \`home\`'s graphics settings when it is unset or \`auto\`.
+new_fn = '''/// Sets `graphicsApi:opengl` in `home`'s graphics settings when it is unset or `auto`.
 /// Windows 7 has no DirectX 12 runtime; OpenGL is the fallback after a Vulkan driver crash.
 pub fn switch_to_opengl(home: &Path) -> Result<bool, String> {
     let path = home.join(GRAPHICS_FILE);
