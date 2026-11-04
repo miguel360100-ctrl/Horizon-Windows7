@@ -304,6 +304,7 @@ test = r'''    #[test]
         ).unwrap();
         let installed = versions.join(&tag);
         assert_eq!(fs::read(installed.join(CLIENT)).unwrap(), client);
+        assert_eq!(fs::read(base.join(CLIENT)).unwrap(), b"official client");
         let payloads: [&[u8]; 3] = [b"MZwin7 ctl", b"MZwin7 prepare", b"MZwin7 server"];
         for (name, body) in names.iter().zip(payloads) {
             assert_eq!(fs::read(installed.join(name)).unwrap(), body);
