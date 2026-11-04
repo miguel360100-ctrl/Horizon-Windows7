@@ -62,8 +62,16 @@ jobs:
           if (-not $text.Contains($oldGpui)) { throw "Expected original gpui dependency not found" }
           if (-not $text.Contains($oldPlatform)) { throw "Expected original gpui_platform dependency not found" }
           $text = $text.Replace($oldGpui, $newGpui).Replace($oldPlatform, $newPlatform)
+          $text = $text.Replace("[workspace]", "[workspace]`n`n[features]`nwindows7-compat = []")
           Set-Content -Path $manifest -Value $text -NoNewline
-          Write-Host "Launcher manifest now references the patched local GPUI source."
+          $backend = "horizon/launcher/src/backend.rs"
+          $backendText = Get-Content $backend -Raw
+          $oldAsset = "pub fn launcher_asset() -> Option<&'static str> {`n    launcher_asset_running_from(appimage_path().is_some())`n}"
+          $newAsset = "pub fn launcher_asset() -> Option<&'static str> {`n    if cfg!(feature = `"windows7-compat`") { None } else { launcher_asset_running_from(appimage_path().is_some()) }`n}"
+          if (-not $backendText.Contains($oldAsset)) { throw "Launcher self-update asset function was not found" }
+          $backendText = $backendText.Replace($oldAsset, $newAsset)
+          Set-Content -Path $backend -Value $backendText -NoNewline
+          Write-Host "Launcher uses patched GPUI; self-updates are safely disabled for the Win7 build to prevent replacement by the upstream Win10+ binary."
 
       # Keep the requested distribution filename while preserving the original setup
       # detection and wizard: only the internal executable-name check is extended.
@@ -82,7 +90,7 @@ jobs:
       - name: Check the original Horizon launcher for Windows 7
         shell: pwsh
         run: |
-          cargo +nightly check --manifest-path horizon/launcher/Cargo.toml --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
+          cargo +nightly check --manifest-path horizon/launcher/Cargo.toml --features windows7-compat --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
 
       # GPUI's older windows-rs bindings link windows.0.48.5.lib. The launcher
       # lockfile already supplies newer Windows import libraries, so provide this
@@ -106,7 +114,7 @@ jobs:
       - name: Build the original Horizon launcher for Windows 7
         shell: pwsh
         run: |
-          cargo +nightly build --release --manifest-path horizon/launcher/Cargo.toml --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
+          cargo +nightly build --release --manifest-path horizon/launcher/Cargo.toml --features windows7-compat --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
           $built = "horizon/launcher/target/x86_64-win7-windows-msvc/release/horizon-launcher.exe"
           if (-not (Test-Path $built)) {
             throw "The Windows 7 launcher binary was not produced at $built"
