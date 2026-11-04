@@ -43,6 +43,76 @@ jobs:
         run: |
           cargo +nightly check --locked -p horizon-client --bin horizon-client --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
 
+      - name: Build the original native game client for Windows 7
+        working-directory: horizon
+        shell: pwsh
+        run: |
+          cargo +nightly build --locked --release -p horizon-client --bin horizon-client --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
+          $built = "target/x86_64-win7-windows-msvc/release/horizon-client.exe"
+          if (-not (Test-Path $built)) { throw "The Windows 7 game client was not produced at $built" }
+
+      - name: Audit game client imports against Windows 7
+        shell: pwsh
+        working-directory: horizon
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\\Installer\\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "vswhere.exe was not found" }
+          $vs = & $vswhere -latest -property installationPath
+          if (-not $vs) { throw "Visual Studio installation was not found" }
+          $dumpbin = Get-ChildItem "$vs\\VC\\Tools\\MSVC" -Filter dumpbin.exe -Recurse |
+            Where-Object { $_.FullName.EndsWith('\\Hostx64\\x64\\dumpbin.exe', [StringComparison]::OrdinalIgnoreCase) } |
+            Select-Object -First 1
+          if (-not $dumpbin) { throw "dumpbin.exe was not found" }
+          $binary = "target/x86_64-win7-windows-msvc/release/horizon-client.exe"
+          $imports = (& $dumpbin.FullName /nologo /imports $binary | Out-String)
+          $forbidden = @(
+            "dcomp.dll",
+            "d3d12.dll",
+            "dxcore.dll",
+            "CreateDXGIFactory2",
+            "GetDpiForWindow",
+            "GetDpiForMonitor",
+            "GetSystemMetricsForDpi",
+            "GetPointerType",
+            "GetDpiForSystem",
+            "GetThreadDpiAwarenessContext",
+            "SetThreadDpiAwarenessContext",
+            "GetWindowDpiAwarenessContext",
+            "SetProcessDpiAwarenessContext",
+            "GetCurrentPackageFullName",
+            "GetCurrentPackageFamilyName",
+            "SetThreadDescription",
+            "GetThreadDescription",
+            "GetSystemTimePreciseAsFileTime",
+            "CreateFile2",
+            "RoGetActivationFactory",
+            "RoOriginateErrorW",
+            "RoInitialize",
+            "WindowsCreateString",
+            "WaitOnAddress",
+            "WakeByAddressAll",
+            "WakeByAddressSingle",
+            "ProcessPrng",
+            "bcryptprimitives.dll",
+            "api-ms-win-core-path-l1-1-0.dll",
+            "api-ms-win-core-winrt-l1-1-0.dll",
+            "api-ms-win-appmodel-runtime-l1-1-0.dll",
+            "api-ms-win-core-synch-l1-2-0.dll",
+            "api-ms-win-shcore-scaling-l1-1-1.dll"
+          )
+          $found = @($forbidden | Where-Object { $imports -match [regex]::Escape($_) })
+          if ($found.Count -gt 0) { throw "Windows 7-incompatible game imports found: $($found -join ', ')" }
+          Write-Host "Static import audit passed for the Windows 7 game client."
+          Get-Item $binary | Select-Object Name,Length
+
+      - name: Upload Windows 7 game client
+        uses: actions/upload-artifact@v4
+        with:
+          name: Horizon-Windows7-Game-Client
+          path: horizon/target/x86_64-win7-windows-msvc/release/horizon-client.exe
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Record target and toolchain
         if: always()
         working-directory: horizon
