@@ -74,8 +74,8 @@ once(
     "Windows graphics choices",
 )
 once(
-    "    /// HORIZON_GRAPHICS_API (auto, vulkan, dx12 or opengl) if set, else the setting.",
-    "    /// HORIZON_GRAPHICS_API (auto, vulkan or opengl) if set, else the setting.",
+    "    /// `HORIZON_GRAPHICS_API` (auto, vulkan, dx12 or opengl) if set, else the setting.",
+    "    /// `HORIZON_GRAPHICS_API` (auto, vulkan or opengl) if set, else the setting.",
     "graphics API environment documentation",
 )
 once(
