@@ -31,6 +31,10 @@ pub(crate) struct DirectManipulationHandler {
 }
 
 impl DirectManipulationHandler {
+    pub fn new(
+        window: HWND,
+        scale_factor: f32,
+        fast_frame_request: Arc<crate::fast::frame_schedule::FrameRequest>,
     ) -> Result<Self> {
         let scale_factor = Rc::new(Cell::new(scale_factor));
         let pending_events = Rc::new(RefCell::new(Vec::new()));
