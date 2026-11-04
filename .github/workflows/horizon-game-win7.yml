@@ -61,7 +61,7 @@ jobs:
         working-directory: horizon
         shell: pwsh
         run: |
-          cargo +nightly check --locked -p horizon-client --bin horizon-client --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
+          cargo +nightly check -p horizon-client --bin horizon-client --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
 
       - name: Build the original Horizon game and companion tools for Windows 7
         working-directory: horizon
