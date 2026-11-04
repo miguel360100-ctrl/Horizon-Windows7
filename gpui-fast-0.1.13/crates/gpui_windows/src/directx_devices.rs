@@ -73,9 +73,21 @@ impl DirectXDevices {
 
 #[inline]
 fn check_debug_layer_available() -> bool {
-    // DXGI debug-interface entry points are optional and can require newer
-    // DXGI runtimes. Disable this diagnostic-only layer on the Win7 path.
-    false
+    // The DXGI debug interface is newer than Windows 7. Keep it out of the
+    // Win7 compatibility build, but preserve the original debug-layer probe
+    // for debug builds on newer Windows versions.
+    #[cfg(all(debug_assertions, not(feature = "windows7-compat")))]
+    {
+        use windows::Win32::Graphics::Dxgi::{DXGIGetDebugInterface1, IDXGIInfoQueue};
+
+        unsafe { DXGIGetDebugInterface1::<IDXGIInfoQueue>(0) }
+            .log_err()
+            .is_some()
+    }
+    #[cfg(any(not(debug_assertions), feature = "windows7-compat"))]
+    {
+        false
+    }
 }
 
 #[inline]
