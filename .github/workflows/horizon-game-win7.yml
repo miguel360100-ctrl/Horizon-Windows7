@@ -56,6 +56,7 @@ jobs:
         run: |
           python ../win7-port/tools/patch-win7-game-graphics.py .
           if ($LASTEXITCODE -ne 0) { throw "Could not patch the Windows 7 graphics backends" }
+          Write-Host "Applied Windows 7 graphics and legacy SAPI compatibility patches."
 
       - name: Check the original native game client for Windows 7
         working-directory: horizon
