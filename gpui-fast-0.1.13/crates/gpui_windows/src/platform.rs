@@ -190,11 +190,11 @@ fn enable_compatible_dpi_awareness() {
     // Prefer per-monitor awareness when the host OS supports it. Resolve the
     // newer entry points dynamically so they are never imported on Windows 7.
     unsafe {
-        let user32 = GetModuleHandleA(PCSTR::from_raw(b"user32.dll\\0".as_ptr())).ok();
+        let user32 = GetModuleHandleA(PCSTR::from_raw(b"user32.dll\0".as_ptr())).ok();
         if let Some(entry) = user32.and_then(|module| {
             GetProcAddress(
                 module,
-                PCSTR::from_raw(b"SetProcessDpiAwarenessContext\\0".as_ptr()),
+                PCSTR::from_raw(b"SetProcessDpiAwarenessContext\0".as_ptr()),
             )
         }) {
             type SetProcessDpiAwarenessContextFn =
@@ -210,10 +210,10 @@ fn enable_compatible_dpi_awareness() {
             // the second attempt too.
         }
 
-        if let Ok(shcore) = LoadLibraryA(PCSTR::from_raw(b"shcore.dll\\0".as_ptr())) {
+        if let Ok(shcore) = LoadLibraryA(PCSTR::from_raw(b"shcore.dll\0".as_ptr())) {
             if let Some(entry) = GetProcAddress(
                 shcore,
-                PCSTR::from_raw(b"SetProcessDpiAwareness\\0".as_ptr()),
+                PCSTR::from_raw(b"SetProcessDpiAwareness\0".as_ptr()),
             ) {
                 type SetProcessDpiAwarenessFn = unsafe extern "system" fn(i32) -> i32;
                 let set_awareness: SetProcessDpiAwarenessFn = std::mem::transmute(entry);
