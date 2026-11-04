@@ -23,7 +23,7 @@ use windows::{
         System::{
             Com::*, Diagnostics::Debug::MessageBeep, LibraryLoader::*, Ole::*, SystemServices::*,
         },
-        UI::{Controls::*, HiDpi::*, Input::KeyboardAndMouse::*, Shell::*, WindowsAndMessaging::*},
+        UI::{Controls::*, Input::KeyboardAndMouse::*, Shell::*, WindowsAndMessaging::*},
     },
     core::*,
 };
@@ -133,7 +133,7 @@ impl WindowsWindowState {
             if dc.is_invalid() {
                 1.0
             } else {
-                let dpi = unsafe { GetDeviceCaps(dc, LOGPIXELSX) };
+                let dpi = unsafe { GetDeviceCaps(Some(dc), LOGPIXELSX) };
                 unsafe { ReleaseDC(Some(hwnd), dc) };
                 if dpi > 0 {
                     dpi as f32 / USER_DEFAULT_SCREEN_DPI as f32
