@@ -22,6 +22,24 @@ use gpui::*;
 /// Query window DPI using GDI, which is available on Windows 7.
 /// GetDpiForWindow is only exported on Windows 10 and causes a loader failure.
 fn get_dpi_for_window_compat(hwnd: HWND) -> u32 {
+    // Preserve per-window scaling on newer Windows without importing an API
+    // that the Windows 7 loader cannot resolve.
+    unsafe {
+        let user32 = GetModuleHandleA(PCSTR::from_raw(b"user32.dll\\0".as_ptr())).ok();
+        let entry = user32.and_then(|module| {
+            GetProcAddress(module, PCSTR::from_raw(b"GetDpiForWindow\\0".as_ptr()))
+        });
+        if let Some(entry) = entry {
+            type GetDpiForWindowFn = unsafe extern "system" fn(HWND) -> u32;
+            let get_dpi_for_window: GetDpiForWindowFn = std::mem::transmute(entry);
+            let dpi = get_dpi_for_window(hwnd);
+            if dpi > 0 {
+                return dpi;
+            }
+        }
+    }
+
+    // Windows 7 fallback: system DPI from a window DC.
     let dc = unsafe { GetDC(Some(hwnd)) };
     if dc.is_invalid() {
         return USER_DEFAULT_SCREEN_DPI;
