@@ -63,7 +63,7 @@ pub(crate) struct DirectXRenderer {
 #[derive(Clone)]
 pub(crate) struct DirectXRendererDevices {
     pub(crate) adapter: IDXGIAdapter1,
-    pub(crate) dxgi_factory: IDXGIFactory6,
+    pub(crate) dxgi_factory: IDXGIFactory1,
     pub(crate) device: ID3D11Device,
     pub(crate) device_context: ID3D11DeviceContext,
     dxgi_device: Option<IDXGIDevice>,
@@ -72,7 +72,7 @@ pub(crate) struct DirectXRendererDevices {
 
 pub(crate) struct DirectXResources {
     // Direct3D rendering objects
-    swap_chain: IDXGISwapChain1,
+    swap_chain: IDXGISwapChain,
     render_target: Option<ID3D11Texture2D>,
     pub(crate) render_target_view: Option<ID3D11RenderTargetView>,
 
@@ -1042,7 +1042,7 @@ impl DirectComposition {
         })
     }
 
-    pub fn set_swap_chain(&self, swap_chain: &IDXGISwapChain1) -> Result<()> {
+    pub fn set_swap_chain(&self, swap_chain: &IDXGISwapChain) -> Result<()> {
         unsafe {
             self.comp_visual.SetContent(swap_chain)?;
             self.comp_target.SetRoot(&self.comp_visual)?;
@@ -1314,11 +1314,11 @@ fn get_comp_device(dxgi_device: &IDXGIDevice) -> Result<IDCompositionDevice> {
 }
 
 pub(crate) fn create_swap_chain_for_composition(
-    dxgi_factory: &IDXGIFactory6,
+    dxgi_factory: &IDXGIFactory1,
     device: &ID3D11Device,
     width: u32,
     height: u32,
-) -> Result<IDXGISwapChain1> {
+) -> Result<IDXGISwapChain> {
     let desc = DXGI_SWAP_CHAIN_DESC1 {
         Width: width,
         Height: height,
@@ -1336,44 +1336,48 @@ pub(crate) fn create_swap_chain_for_composition(
         AlphaMode: DXGI_ALPHA_MODE_PREMULTIPLIED,
         Flags: 0,
     };
-    Ok(unsafe { dxgi_factory.CreateSwapChainForComposition(device, &desc, None)? })
+    let factory2: IDXGIFactory2 = dxgi_factory.cast()?;
+    let swap_chain = unsafe { factory2.CreateSwapChainForComposition(device, &desc, None)? };
+    Ok(swap_chain.cast()?)
 }
 
 fn create_swap_chain(
-    dxgi_factory: &IDXGIFactory6,
+    dxgi_factory: &IDXGIFactory1,
     device: &ID3D11Device,
     hwnd: HWND,
     width: u32,
     height: u32,
-) -> Result<IDXGISwapChain1> {
+) -> Result<IDXGISwapChain> {
     use windows::Win32::Graphics::Dxgi::DXGI_MWA_NO_ALT_ENTER;
 
-    let desc = DXGI_SWAP_CHAIN_DESC1 {
-        Width: width,
-        Height: height,
-        Format: RENDER_TARGET_FORMAT,
-        Stereo: false.into(),
-        SampleDesc: DXGI_SAMPLE_DESC {
-            Count: 1,
-            Quality: 0,
-        },
+    // DXGI 1.0 swap chains are available on Windows 7. Flip-model HWND swap
+    // chains require a newer DXGI version, so use the legacy discard model here.
+    let mut buffer_desc = DXGI_MODE_DESC::default();
+    buffer_desc.Width = width;
+    buffer_desc.Height = height;
+    buffer_desc.Format = RENDER_TARGET_FORMAT;
+    let desc = DXGI_SWAP_CHAIN_DESC {
+        BufferDesc: buffer_desc,
+        SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
         BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
         BufferCount: BUFFER_COUNT as u32,
-        Scaling: DXGI_SCALING_NONE,
-        SwapEffect: DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL,
-        AlphaMode: DXGI_ALPHA_MODE_IGNORE,
-        Flags: 0,
+        OutputWindow: hwnd,
+        Windowed: true.into(),
+        SwapEffect: DXGI_SWAP_EFFECT_DISCARD,
+        Flags: DXGI_SWAP_CHAIN_FLAG(0),
     };
-    let swap_chain =
-        unsafe { dxgi_factory.CreateSwapChainForHwnd(device, hwnd, &desc, None, None) }?;
-    unsafe { dxgi_factory.MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER) }?;
-    Ok(swap_chain)
+    let mut swap_chain: Option<IDXGISwapChain> = None;
+    unsafe {
+        dxgi_factory.CreateSwapChain(device, &desc, &mut swap_chain)?;
+        dxgi_factory.MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER)?;
+    }
+    swap_chain.context("DXGI did not return a swap chain")
 }
 
 #[inline]
 fn create_resources(
     devices: &DirectXRendererDevices,
-    swap_chain: &IDXGISwapChain1,
+    swap_chain: &IDXGISwapChain,
     width: u32,
     height: u32,
 ) -> Result<(
