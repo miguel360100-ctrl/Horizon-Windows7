@@ -147,9 +147,9 @@ impl WindowsWindowState {
                 // Resolve GetDpiForWindow dynamically: it is not exported by
                 // Windows 7, but newer Windows versions retain per-window DPI.
                 let monitor_dpi = unsafe {
-                    let user32 = GetModuleHandleA(PCSTR::from_raw(b"user32.dll\\0".as_ptr())).ok();
+                    let user32 = GetModuleHandleA(PCSTR::from_raw(b"user32.dll\0".as_ptr())).ok();
                     let get_dpi = user32.and_then(|module| {
-                        GetProcAddress(module, PCSTR::from_raw(b"GetDpiForWindow\\0".as_ptr()))
+                        GetProcAddress(module, PCSTR::from_raw(b"GetDpiForWindow\0".as_ptr()))
                     });
                     let dpi = get_dpi.map(|entry| {
                         type GetDpiForWindowFn = unsafe extern "system" fn(HWND) -> u32;
