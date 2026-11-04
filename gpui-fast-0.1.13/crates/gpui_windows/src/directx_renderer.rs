@@ -923,6 +923,7 @@ impl DirectXResources {
                 width,
                 height,
             )?
+            .cast::<IDXGISwapChain>()?
         };
 
         let (
