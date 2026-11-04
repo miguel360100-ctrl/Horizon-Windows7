@@ -1816,12 +1816,12 @@ fn get_system_metrics_for_dpi_compat(
         unsafe extern "system" fn(SYSTEM_METRICS_INDEX, u32) -> i32;
 
     unsafe {
-        let user32 = GetModuleHandleA(PCSTR::from_raw(b"user32.dll\\0".as_ptr()))
+        let user32 = GetModuleHandleA(PCSTR::from_raw(b"user32.dll\0".as_ptr()))
             .ok();
         if let Some(user32) = user32
             && let Some(entry) = GetProcAddress(
                 user32,
-                PCSTR::from_raw(b"GetSystemMetricsForDpi\\0".as_ptr()),
+                PCSTR::from_raw(b"GetSystemMetricsForDpi\0".as_ptr()),
             )
         {
             let get_system_metrics: GetSystemMetricsForDpiFn = std::mem::transmute(entry);
