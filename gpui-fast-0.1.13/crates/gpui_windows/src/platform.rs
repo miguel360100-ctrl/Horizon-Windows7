@@ -226,8 +226,8 @@ fn enable_compatible_dpi_awareness() {
         }
 
         // Windows 7 fallback: system-DPI awareness is the highest mode it offers.
-        if let Err(error) = SetProcessDPIAware() {
-            log::debug!("Could not enable system-DPI awareness: {error}");
+        if !SetProcessDPIAware().as_bool() {
+            log::debug!("Could not enable system-DPI awareness (it may already be configured).");
         }
     }
 }

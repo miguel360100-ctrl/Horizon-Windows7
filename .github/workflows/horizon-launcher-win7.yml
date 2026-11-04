@@ -117,6 +117,10 @@ jobs:
             "WakeByAddressAll",
             "WakeByAddressSingle",
             "ProcessPrng",
+            "bcryptprimitives.dll",
+            "d3d12.dll",
+            "dxcore.dll",
+            "api-ms-win-core-path-l1-1-0.dll",
             "api-ms-win-core-winrt-l1-1-0.dll",
             "api-ms-win-appmodel-runtime-l1-1-0.dll",
             "api-ms-win-core-synch-l1-2-0.dll",
@@ -135,14 +139,14 @@ jobs:
           $installRoot = Join-Path $env:RUNNER_TEMP "Horizon Win7 setup smoke"
           $installedDir = Join-Path $installRoot "Horizon Launcher"
           $installedExe = Join-Path $installedDir "horizon-launcher.exe"
-          & ".\\horizon-launcher-setup.exe" setup --quiet --dir $installRoot --desktop-shortcut
+          & ".\horizon-launcher-setup.exe" setup --quiet --dir $installRoot --desktop-shortcut
           if ($LASTEXITCODE -ne 0) { throw "The setup executable failed with exit code $LASTEXITCODE" }
           if (-not (Test-Path $installedExe)) { throw "The installed launcher was not copied to $installedExe" }
           & $installedExe uninstall --quiet
           if ($LASTEXITCODE -ne 0) { throw "The uninstall command failed with exit code $LASTEXITCODE" }
           if (Test-Path $installedExe) { throw "The launcher executable remains after uninstall" }
           if (Test-Path $installedDir) { throw "The launcher install folder remains after uninstall" }
-          $uninstallKey = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\HorizonLauncher"
+          $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\HorizonLauncher"
           if (Test-Path $uninstallKey) { throw "The uninstall registry entry remains after uninstall" }
           Write-Host "Per-user install and uninstall smoke test passed."
 

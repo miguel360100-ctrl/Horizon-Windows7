@@ -7,12 +7,13 @@ use windows::{
     Win32::{
         Foundation::*,
         Graphics::Gdi::*,
-        UI::{
-            WindowsAndMessaging::USER_DEFAULT_SCREEN_DPI,
-        },
+        UI::WindowsAndMessaging::USER_DEFAULT_SCREEN_DPI,
     },
     core::*,
 };
+
+#[cfg(not(feature = "windows7-compat"))]
+use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 
 use crate::logical_point;
 use gpui::{
@@ -234,10 +235,9 @@ fn generate_uuid(device_name: &[u16]) -> Uuid {
     Uuid::new_v5(&Uuid::NAMESPACE_DNS, &name)
 }
 
+#[cfg(feature = "windows7-compat")]
 fn get_scale_factor_for_monitor(_monitor: HMONITOR) -> Result<f32> {
-    // GetDpiForMonitor is exported by shcore.dll on Windows 8.1+, not
-    // Windows 7. Use the classic GDI system-DPI query, available since
-    // older Windows versions, rather than importing the newer API.
+    // Windows 7 has system-DPI awareness but no GetDpiForMonitor.
     let dc = unsafe { GetDC(None) };
     if dc.is_invalid() {
         return Ok(1.0);
@@ -249,4 +249,13 @@ fn get_scale_factor_for_monitor(_monitor: HMONITOR) -> Result<f32> {
     } else {
         Ok(1.0)
     }
+}
+
+#[cfg(not(feature = "windows7-compat"))]
+fn get_scale_factor_for_monitor(monitor: HMONITOR) -> Result<f32> {
+    let mut dpi_x = 0;
+    let mut dpi_y = 0;
+    unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) }?;
+    assert_eq!(dpi_x, dpi_y);
+    Ok(dpi_x as f32 / USER_DEFAULT_SCREEN_DPI as f32)
 }
