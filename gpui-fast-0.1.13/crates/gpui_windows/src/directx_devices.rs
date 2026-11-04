@@ -14,8 +14,7 @@ use windows::Win32::{
             D3D11_SDK_VERSION, D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext,
         },
         Dxgi::{
-            CreateDXGIFactory2, DXGI_CREATE_FACTORY_DEBUG, DXGI_CREATE_FACTORY_FLAGS,
-            IDXGIAdapter1, IDXGIFactory6,
+            CreateDXGIFactory1, IDXGIAdapter1, IDXGIFactory1,
         },
     },
 };
@@ -76,9 +75,9 @@ impl DirectXDevices {
 fn check_debug_layer_available() -> bool {
     #[cfg(debug_assertions)]
     {
-        use windows::Win32::Graphics::Dxgi::{DXGIGetDebugInterface1, IDXGIInfoQueue};
+        use windows::Win32::Graphics::Dxgi::{DXGIGetDebugInterface, IDXGIInfoQueue};
 
-        unsafe { DXGIGetDebugInterface1::<IDXGIInfoQueue>(0) }
+        unsafe { DXGIGetDebugInterface::<IDXGIInfoQueue>() }
             .log_err()
             .is_some()
     }
@@ -89,22 +88,14 @@ fn check_debug_layer_available() -> bool {
 }
 
 #[inline]
-fn get_dxgi_factory(debug_layer_available: bool) -> Result<IDXGIFactory6> {
-    let factory_flag = if debug_layer_available {
-        DXGI_CREATE_FACTORY_DEBUG
-    } else {
-        #[cfg(debug_assertions)]
-        log::warn!(
-            "Failed to get DXGI debug interface. DirectX debugging features will be disabled."
-        );
-        DXGI_CREATE_FACTORY_FLAGS::default()
-    };
-    unsafe { Ok(CreateDXGIFactory2(factory_flag)?) }
+fn get_dxgi_factory(_debug_layer_available: bool) -> Result<IDXGIFactory1> {
+    // DXGI 1.1 is present on Windows 7. CreateDXGIFactory2 requires a newer OS.
+    unsafe { Ok(CreateDXGIFactory1::<IDXGIFactory1>()?) }
 }
 
 #[inline]
 fn get_adapter(
-    dxgi_factory: &IDXGIFactory6,
+    dxgi_factory: &IDXGIFactory1,
     debug_layer_available: bool,
 ) -> Result<(
     IDXGIAdapter1,
@@ -113,7 +104,7 @@ fn get_adapter(
     D3D_FEATURE_LEVEL,
 )> {
     for adapter_index in 0.. {
-        let adapter: IDXGIAdapter1 = unsafe { dxgi_factory.EnumAdapters(adapter_index)?.cast()? };
+        let adapter: IDXGIAdapter1 = unsafe { dxgi_factory.EnumAdapters1(adapter_index)? };
         if let Ok(desc) = unsafe { adapter.GetDesc1() } {
             let gpu_name = String::from_utf16_lossy(&desc.Description)
                 .trim_matches(char::from(0))
