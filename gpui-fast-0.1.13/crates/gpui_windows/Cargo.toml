@@ -15,6 +15,8 @@ doctest = false
 [features]
 default = ["gpui/default"]
 test-support = ["gpui/test-support"]
+# Disable WinRT toast APIs that are not available on Windows 7.
+windows7-compat = []
 screen-capture = ["gpui/screen-capture", "scap"]
 
 [dependencies]
