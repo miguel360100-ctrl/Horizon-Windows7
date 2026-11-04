@@ -3,6 +3,17 @@ import sys
 
 root = Path(sys.argv[1])
 
+# windows 0.62 pulls in windows-future, which statically imports WinRT activation
+# APIs unavailable on Windows 7. SAPI's COM interfaces used by the narrator are
+# available in windows 0.54 and do not need the WinRT projection.
+narrator_manifest = root / "crates/horizon-narrator/Cargo.toml"
+narrator = narrator_manifest.read_text(encoding="utf-8")
+old_windows = 'windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Media_Speech", "Win32_System_Com"] }'
+new_windows = 'windows = { version = "0.54.0", features = ["Win32_Foundation", "Win32_Media_Speech", "Win32_System_Com"] }'
+if narrator.count(old_windows) != 1:
+    raise SystemExit("Windows 7 narrator compatibility: expected one windows 0.62.2 dependency")
+narrator_manifest.write_text(narrator.replace(old_windows, new_windows, 1), encoding="utf-8", newline="\\n")
+
 def replace_once(path: Path, old: str, new: str, label: str) -> None:
     text = path.read_text(encoding="utf-8")
     count = text.count(old)
