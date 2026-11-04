@@ -9,7 +9,7 @@ use windows::Win32::{
     Foundation::*,
     Graphics::{DirectManipulation::*, Gdi::*},
     System::{Com::*, LibraryLoader::*},
-    UI::{Input::Pointer::*, WindowsAndMessaging::*},
+    UI::WindowsAndMessaging::*,
 };
 
 use crate::*;
@@ -22,7 +22,7 @@ fn get_pointer_type_compat(
     pointer_id: u32,
     pointer_type: *mut POINTER_INPUT_TYPE,
 ) -> bool {
-    type GetPointerTypeFn = unsafe extern "system" fn(u32, *mut POINTER_INPUT_TYPE) -> BOOL;
+    type GetPointerTypeFn = unsafe extern "system" fn(u32, *mut POINTER_INPUT_TYPE) -> i32;
 
     unsafe {
         let Ok(user32) = GetModuleHandleA(PCSTR::from_raw(b"user32.dll\0".as_ptr())) else {
@@ -35,7 +35,7 @@ fn get_pointer_type_compat(
             return false;
         };
         let get_pointer_type: GetPointerTypeFn = std::mem::transmute(entry);
-        get_pointer_type(pointer_id, pointer_type).as_bool()
+        get_pointer_type(pointer_id, pointer_type) != 0
     }
 }
 
