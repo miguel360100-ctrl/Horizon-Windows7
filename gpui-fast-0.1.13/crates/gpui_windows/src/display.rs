@@ -8,7 +8,6 @@ use windows::{
         Foundation::*,
         Graphics::Gdi::*,
         UI::{
-            HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI},
             WindowsAndMessaging::USER_DEFAULT_SCREEN_DPI,
         },
     },
@@ -235,10 +234,19 @@ fn generate_uuid(device_name: &[u16]) -> Uuid {
     Uuid::new_v5(&Uuid::NAMESPACE_DNS, &name)
 }
 
-fn get_scale_factor_for_monitor(monitor: HMONITOR) -> Result<f32> {
-    let mut dpi_x = 0;
-    let mut dpi_y = 0;
-    unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) }?;
-    assert_eq!(dpi_x, dpi_y);
-    Ok(dpi_x as f32 / USER_DEFAULT_SCREEN_DPI as f32)
+fn get_scale_factor_for_monitor(_monitor: HMONITOR) -> Result<f32> {
+    // GetDpiForMonitor is exported by shcore.dll on Windows 8.1+, not
+    // Windows 7. Use the classic GDI system-DPI query, available since
+    // older Windows versions, rather than importing the newer API.
+    let dc = unsafe { GetDC(None) };
+    if dc.is_invalid() {
+        return Ok(1.0);
+    }
+    let dpi = unsafe { GetDeviceCaps(dc, LOGPIXELSX) };
+    unsafe { ReleaseDC(None, dc) };
+    if dpi > 0 {
+        Ok(dpi as f32 / USER_DEFAULT_SCREEN_DPI as f32)
+    } else {
+        Ok(1.0)
+    }
 }
