@@ -112,35 +112,3 @@ jobs:
           path: horizon-launcher-setup.exe
           if-no-files-found: error
           retention-days: 14
- } |
-            Select-Object -First 1
-          if (-not $dumpbin) { throw "dumpbin.exe was not found" }
-          $imports = (& $dumpbin.FullName /nologo /imports "horizon-launcher-setup.exe" | Out-String)
-          $forbidden = @(
-            "dcomp.dll",
-            "CreateDXGIFactory2",
-            "GetDpiForWindow",
-            "GetDpiForMonitor",
-            "GetSystemMetricsForDpi",
-            "GetPointerType",
-            "RoGetActivationFactory",
-            "RoOriginateErrorW",
-            "WaitOnAddress",
-            "WakeByAddressAll",
-            "WakeByAddressSingle",
-            "ProcessPrng"
-          )
-          $found = @($forbidden | Where-Object { $imports -match [regex]::Escape($_) })
-          if ($found.Count -gt 0) {
-            throw "Windows 7-incompatible static imports found: $($found -join ', ')"
-          }
-          Write-Host "Static import audit passed for the Windows 7 launcher."
-          Get-Item "horizon-launcher-setup.exe" | Select-Object Name,Length
-
-      - name: Upload Windows 7 setup executable
-        uses: actions/upload-artifact@v4
-        with:
-          name: Horizon-Windows7-Setup
-          path: horizon-launcher-setup.exe
-          if-no-files-found: error
-          retention-days: 14
