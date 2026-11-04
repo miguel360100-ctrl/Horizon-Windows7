@@ -37,7 +37,7 @@ pub(crate) fn try_to_recover_from_device_lost<T>(mut f: impl FnMut() -> Result<T
 #[derive(Clone)]
 pub(crate) struct DirectXDevices {
     pub(crate) adapter: IDXGIAdapter1,
-    pub(crate) dxgi_factory: IDXGIFactory6,
+    pub(crate) dxgi_factory: IDXGIFactory1,
     pub(crate) device: ID3D11Device,
     pub(crate) device_context: ID3D11DeviceContext,
 }
@@ -73,18 +73,9 @@ impl DirectXDevices {
 
 #[inline]
 fn check_debug_layer_available() -> bool {
-    #[cfg(debug_assertions)]
-    {
-        use windows::Win32::Graphics::Dxgi::{DXGIGetDebugInterface, IDXGIInfoQueue};
-
-        unsafe { DXGIGetDebugInterface::<IDXGIInfoQueue>() }
-            .log_err()
-            .is_some()
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        false
-    }
+    // DXGI debug-interface entry points are optional and can require newer
+    // DXGI runtimes. Disable this diagnostic-only layer on the Win7 path.
+    false
 }
 
 #[inline]
