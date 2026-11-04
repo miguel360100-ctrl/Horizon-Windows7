@@ -127,8 +127,20 @@ impl WindowsWindowState {
         draw_coordinator: Rc<DrawCoordinator>,
     ) -> Result<Self> {
         let scale_factor = {
-            let monitor_dpi = unsafe { GetDpiForWindow(hwnd) } as f32;
-            monitor_dpi / USER_DEFAULT_SCREEN_DPI as f32
+            // GetDpiForWindow is a Windows 10 API. Query the window DC instead
+            // so the same window initialization path works on Windows 7.
+            let dc = unsafe { GetDC(Some(hwnd)) };
+            if dc.is_invalid() {
+                1.0
+            } else {
+                let dpi = unsafe { GetDeviceCaps(dc, LOGPIXELSX) };
+                unsafe { ReleaseDC(Some(hwnd), dc) };
+                if dpi > 0 {
+                    dpi as f32 / USER_DEFAULT_SCREEN_DPI as f32
+                } else {
+                    1.0
+                }
+            }
         };
         let origin = logical_point(window_params.x as f32, window_params.y as f32, scale_factor);
         let logical_size = {
