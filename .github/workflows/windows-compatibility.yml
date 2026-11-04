@@ -31,6 +31,24 @@ jobs:
         with:
           workspaces: gpui-fast-0.1.13 -> target
 
+      - name: Check Win32 API string terminators
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          roots = [Path("gpui-fast-0.1.13/crates/gpui_windows/src")]
+          bad = []
+          for root in roots:
+              for source in root.rglob("*.rs"):
+                  for number, line in enumerate(source.read_text(encoding="utf-8").splitlines(), 1):
+                      if "PCSTR::from_raw(b\"" in line and r"\\0" in line:
+                          bad.append(f"{source}:{number}: {line.strip()}")
+          if bad:
+              raise SystemExit("Win32 API strings contain a literal backslash-zero instead of a NUL terminator:\n" + "\n".join(bad))
+          print("Win32 API strings use proper NUL terminators.")
+          PY
+
       - name: Compile GPUI Windows backend (Windows 7 compatibility)
         run: cargo check -p gpui_windows --all-targets --features windows7-compat
 
