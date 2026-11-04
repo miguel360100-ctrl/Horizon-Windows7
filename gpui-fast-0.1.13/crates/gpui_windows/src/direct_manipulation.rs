@@ -25,12 +25,12 @@ fn get_pointer_type_compat(
     type GetPointerTypeFn = unsafe extern "system" fn(u32, *mut POINTER_INPUT_TYPE) -> BOOL;
 
     unsafe {
-        let Ok(user32) = GetModuleHandleA(PCSTR::from_raw(b"user32.dll\\0".as_ptr())) else {
+        let Ok(user32) = GetModuleHandleA(PCSTR::from_raw(b"user32.dll\0".as_ptr())) else {
             return false;
         };
         let Some(entry) = GetProcAddress(
             user32,
-            PCSTR::from_raw(b"GetPointerType\\0".as_ptr()),
+            PCSTR::from_raw(b"GetPointerType\0".as_ptr()),
         ) else {
             return false;
         };
