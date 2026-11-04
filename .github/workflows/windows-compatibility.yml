@@ -1,0 +1,41 @@
+name: Windows compatibility baseline
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "gpui-fast-0.1.13/**"
+      - ".github/workflows/windows-compatibility.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  gpui-windows-build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: gpui-fast-0.1.13
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned Rust toolchain
+        run: rustup show
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gpui-fast-0.1.13 -> target
+
+      - name: Compile GPUI Windows backend
+        run: cargo check -p gpui_windows --all-targets
+
+      - name: Compile GPUI Windows tests
+        run: cargo check -p gpui_windows --tests
+
+      - name: Record target and toolchain
+        if: always()
+        run: |
+          rustc -Vv
+          cargo -V
+          rustup target list --installed
