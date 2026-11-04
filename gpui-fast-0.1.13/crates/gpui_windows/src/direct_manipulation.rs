@@ -8,11 +8,36 @@ use gpui_util::ResultExt;
 use windows::Win32::{
     Foundation::*,
     Graphics::{DirectManipulation::*, Gdi::*},
-    System::Com::*,
+    System::{Com::*, LibraryLoader::*},
     UI::{Input::Pointer::*, WindowsAndMessaging::*},
 };
 
 use crate::*;
+
+use windows::core::PCSTR;
+
+/// GetPointerType was introduced in Windows 8. Resolve it dynamically so a
+/// touchpad-specific optimization cannot prevent the Windows 7 process loading.
+fn get_pointer_type_compat(
+    pointer_id: u32,
+    pointer_type: *mut POINTER_INPUT_TYPE,
+) -> bool {
+    type GetPointerTypeFn = unsafe extern "system" fn(u32, *mut POINTER_INPUT_TYPE) -> BOOL;
+
+    unsafe {
+        let Ok(user32) = GetModuleHandleA(PCSTR::from_raw(b"user32.dll\\0".as_ptr())) else {
+            return false;
+        };
+        let Some(entry) = GetProcAddress(
+            user32,
+            PCSTR::from_raw(b"GetPointerType\\0".as_ptr()),
+        ) else {
+            return false;
+        };
+        let get_pointer_type: GetPointerTypeFn = std::mem::transmute(entry);
+        get_pointer_type(pointer_id, pointer_type).as_bool()
+    }
+}
 
 /// Default viewport size in pixels. The actual content size doesn't matter
 /// because we're using the viewport only for gesture recognition, not for
@@ -116,15 +141,17 @@ impl DirectManipulationHandler {
     }
 
     pub fn on_pointer_hit_test(&self, wparam: WPARAM) {
+        let Some(viewport) = &self.viewport else {
+            return;
+        };
         unsafe {
             let pointer_id = wparam.loword() as u32;
             let mut pointer_type = POINTER_INPUT_TYPE::default();
-            if GetPointerType(pointer_id, &mut pointer_type).is_ok() && pointer_type == PT_TOUCHPAD
+            if get_pointer_type_compat(pointer_id, &mut pointer_type)
+                && pointer_type == PT_TOUCHPAD
             {
-                if let Some(viewport) = &self.viewport {
-                    viewport.SetContact(pointer_id).log_err();
-                    crate::fast::frame_schedule::ManipulationFrames::contact(&self.fast_manipulation);
-                }
+                viewport.SetContact(pointer_id).log_err();
+                crate::fast::frame_schedule::ManipulationFrames::contact(&self.fast_manipulation);
             }
         }
     }
