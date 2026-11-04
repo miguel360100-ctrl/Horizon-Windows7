@@ -38,6 +38,9 @@ use windows::{
 use crate::*;
 use gpui::*;
 
+#[cfg(not(feature = "windows7-compat"))]
+use windows::UI::ViewManagement::UISettings;
+
 struct TrackedWindow {
     handle: SafeHwnd,
     frame_signal: Arc<PlatformFrameSignal>,
@@ -1755,11 +1758,20 @@ fn load_icon() -> Result<HICON> {
     Ok(HICON(handle.0))
 }
 
+#[cfg(feature = "windows7-compat")]
 #[inline]
 fn should_auto_hide_scrollbars() -> Result<bool> {
     // Windows Runtime UISettings is unavailable on Windows 7. Use the
     // platform-neutral scrollbar behavior instead of importing WinRT APIs.
     Ok(false)
+}
+
+#[cfg(not(feature = "windows7-compat"))]
+#[inline]
+fn should_auto_hide_scrollbars() -> Result<bool> {
+    // Keep the original Windows behavior on supported systems.
+    let ui_settings = UISettings::new()?;
+    Ok(ui_settings.AutoHideScrollBars()?)
 }
 
 fn check_device_lost(device: &ID3D11Device) -> bool {
