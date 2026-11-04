@@ -13,13 +13,7 @@ use std::{
 use anyhow::{Context as _, Result, anyhow};
 use gpui::*;
 use parking_lot::RwLock;
-use windows::{
-    Win32::{
-        Foundation::HANDLE,
-        Graphics::Gdi::*,
-    },
-    core::PCWSTR,
-};
+use windows::{Win32::Graphics::Gdi::*, core::PCWSTR};
 
 const BASE_EM_SIZE: i32 = 2048;
 const DEFAULT_FAMILY: &str = "Segoe UI";
@@ -28,7 +22,7 @@ const DEFAULT_FAMILY: &str = "Segoe UI";
 struct GdiState {
     fonts: Vec<Font>,
     font_ids: HashMap<Font, FontId>,
-    private_font_resources: Vec<HANDLE>,
+    private_font_resources: Vec<isize>,
 }
 
 pub(crate) struct GdiTextSystem {
@@ -226,7 +220,7 @@ impl Drop for GdiTextSystem {
     fn drop(&mut self) {
         for resource in self.state.get_mut().private_font_resources.drain(..) {
             unsafe {
-                RemoveFontMemResourceEx(resource);
+                RemoveFontMemResourceEx(windows::Win32::Foundation::HANDLE(resource as _));
             }
         }
     }
@@ -251,7 +245,7 @@ impl PlatformTextSystem for GdiTextSystem {
             if handle.is_invalid() {
                 return Err(anyhow!("AddFontMemResourceEx failed to register an embedded font"));
             }
-            state.private_font_resources.push(handle);
+            state.private_font_resources.push(handle.0 as isize);
         }
         Ok(())
     }
