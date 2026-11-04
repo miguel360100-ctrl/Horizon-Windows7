@@ -13,7 +13,7 @@ use std::{
 use anyhow::{Context as _, Result, anyhow};
 use gpui::*;
 use parking_lot::RwLock;
-use windows::{Win32::Graphics::Gdi::*, core::PCWSTR};
+use windows::{Win32::Graphics::Gdi::*};
 
 const BASE_EM_SIZE: i32 = 2048;
 const DEFAULT_FAMILY: &str = "Segoe UI";
