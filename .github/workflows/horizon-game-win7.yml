@@ -1,0 +1,52 @@
+name: Horizon game Windows 7 compatibility
+
+concurrency:
+  group: horizon-game-win7-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/horizon-game-win7.yml"
+
+permissions:
+  contents: read
+
+env:
+  RUSTFLAGS: -C target-feature=+crt-static
+
+jobs:
+  game-client-check:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out the original Horizon source
+        uses: actions/checkout@v4
+        with:
+          repository: horizon-rust/horizon
+          ref: 2e540fe373ce1e453572ada2343a56e1a9544e04
+          path: horizon
+
+      - name: Install nightly Rust and source
+        shell: pwsh
+        run: |
+          rustup toolchain install nightly --profile minimal --component rust-src
+          $targets = rustc +nightly --print target-list
+          if ($targets -notcontains "x86_64-win7-windows-msvc") {
+            throw "Nightly does not include x86_64-win7-windows-msvc"
+          }
+
+      - name: Check the original native game client for Windows 7
+        working-directory: horizon
+        shell: pwsh
+        run: |
+          cargo +nightly check --locked -p horizon-client --bin horizon-client --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
+
+      - name: Record target and toolchain
+        if: always()
+        working-directory: horizon
+        run: |
+          rustc +nightly -Vv
+          cargo +nightly -V
+          rustup target list --installed
