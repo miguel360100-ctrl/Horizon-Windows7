@@ -48,8 +48,11 @@ jobs:
         shell: pwsh
         run: |
           rustup toolchain install nightly --profile minimal --component rust-src
-          rustc +nightly --print target-list | Select-String "x86_64-win7-windows-msvc"
-          cargo +nightly check -p gpui_windows --features windows7-compat --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
+          $targets = rustc +nightly --print target-list
+          if ($targets -notcontains "x86_64-win7-windows-msvc") {
+            throw "The installed nightly compiler does not include x86_64-win7-windows-msvc"
+          }
+          cargo +nightly check -p gpui_windows --features windows7-compat --target x86_64-win7-windows-msvc -Z build-std
 
 
       - name: Record target and toolchain
