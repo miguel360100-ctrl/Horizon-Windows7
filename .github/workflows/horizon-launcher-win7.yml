@@ -216,6 +216,16 @@ jobs:
           Write-Host "Static import audit passed for the Windows 7 launcher."
           Get-Item "Horizon-Windows7-Setup.exe" | Select-Object Name,Length
 
+      - name: Verify official Microsoft sign-in configuration is embedded
+        shell: pwsh
+        run: |
+          $clientId = $env:HORIZON_MSA_CLIENT_ID
+          if ([string]::IsNullOrWhiteSpace($clientId)) { throw "The official Horizon Microsoft client ID is not configured" }
+          $binary = [System.IO.File]::ReadAllBytes("Horizon-Windows7-Setup.exe")
+          $binaryText = [System.Text.Encoding]::ASCII.GetString($binary)
+          if (-not $binaryText.Contains($clientId)) { throw "The official Horizon Microsoft client ID was not embedded in the launcher" }
+          Write-Host "The official Horizon Microsoft sign-in client ID is embedded."
+
       - name: Smoke-test per-user setup and uninstall
         shell: pwsh
         run: |
