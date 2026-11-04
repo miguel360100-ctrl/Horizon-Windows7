@@ -1,8 +1,8 @@
 name: Windows compatibility baseline
 
 concurrency:
-  group: windows-compatibility-${{ github.ref }}
-  cancel-in-progress: true
+  group: windows-compatibility-${{ github.sha }}
+  cancel-in-progress: false
 
 on:
   workflow_dispatch:
