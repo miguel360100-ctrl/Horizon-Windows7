@@ -19,7 +19,7 @@ use windows::Win32::{
         },
     },
 };
-use windows::core::Interface;
+use windows::core::{HRESULT, Interface};
 
 pub(crate) fn try_to_recover_from_device_lost<T>(mut f: impl FnMut() -> Result<T>) -> Result<T> {
     (0..5)
@@ -152,23 +152,54 @@ fn get_device(
     } else {
         D3D11_CREATE_DEVICE_BGRA_SUPPORT
     };
-    unsafe {
+    // Windows 7's D3D11 runtime does not understand FEATURE_LEVEL_11_1.
+    // Passing it in the requested list makes D3D11CreateDevice fail with
+    // E_INVALIDARG before it can fall back to 11_0. Retry with the Windows 7
+    // compatible list in that specific case; preserve all other failures.
+    let requested_feature_levels = [
+        D3D_FEATURE_LEVEL_11_1,
+        D3D_FEATURE_LEVEL_11_0,
+        D3D_FEATURE_LEVEL_10_1,
+    ];
+    let windows_7_feature_levels = [
+        D3D_FEATURE_LEVEL_11_0,
+        D3D_FEATURE_LEVEL_10_1,
+    ];
+    let create_device = unsafe {
         D3D11CreateDevice(
             adapter,
             D3D_DRIVER_TYPE_UNKNOWN,
             HMODULE::default(),
             device_flags,
-            // 4x MSAA is required for Direct3D Feature Level 10.1 or better
-            Some(&[
-                D3D_FEATURE_LEVEL_11_1,
-                D3D_FEATURE_LEVEL_11_0,
-                D3D_FEATURE_LEVEL_10_1,
-            ]),
+            Some(&requested_feature_levels),
             D3D11_SDK_VERSION,
             Some(&mut device),
             feature_level,
             context,
-        )?;
+        )
+    };
+    if let Err(error) = create_device {
+        // HRESULT_FROM_WIN32(ERROR_INVALID_PARAMETER) == E_INVALIDARG.
+        if error.code() != HRESULT(0x8007_0057_u32 as i32) {
+            return Err(error.into());
+        }
+
+        log::info!(
+            "D3D11 rejected feature level 11.1; retrying with the Windows 7 compatible feature-level list."
+        );
+        unsafe {
+            D3D11CreateDevice(
+                adapter,
+                D3D_DRIVER_TYPE_UNKNOWN,
+                HMODULE::default(),
+                device_flags,
+                Some(&windows_7_feature_levels),
+                D3D11_SDK_VERSION,
+                Some(&mut device),
+                feature_level,
+                context,
+            )?;
+        }
     }
     let device = device.unwrap();
     let mut data = D3D11_FEATURE_DATA_D3D10_X_HARDWARE_OPTIONS::default();
