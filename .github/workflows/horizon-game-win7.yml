@@ -62,13 +62,18 @@ jobs:
         working-directory: horizon
         shell: pwsh
         run: |
-          cargo +nightly check -p horizon-client --bin horizon-client --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
+          cargo +nightly check -p horizon-client --no-default-features --features audio --bin horizon-client --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
 
       - name: Build the original Horizon game and companion tools for Windows 7
         working-directory: horizon
         shell: pwsh
         run: |
-          cargo +nightly build --locked --release -p horizon-client -p horizon-client-lib --bins -p horizon-prepare -p horizon-server --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
+          # The stock Windows controller backend uses Windows.Gaming.Input (WinRT),
+          # which does not exist on Windows 7. Keep sound and keyboard/mouse, but build
+          # the client and ctl without the optional native controller feature.
+          cargo +nightly build --locked --release -p horizon-client --no-default-features --features audio --bin horizon-client --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
+          cargo +nightly build --locked --release -p horizon-client-lib --no-default-features --features audio --bin horizon-ctl --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
+          cargo +nightly build --locked --release -p horizon-prepare --bin horizon-prepare -p horizon-server --bin horizon-server --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
           $binDir = "target/x86_64-win7-windows-msvc/release"
           foreach ($name in @("horizon-client.exe", "horizon-ctl.exe", "horizon-prepare.exe", "horizon-server.exe")) {
             if (-not (Test-Path (Join-Path $binDir $name))) { throw "The Windows 7 package is missing $name" }
@@ -108,6 +113,7 @@ jobs:
           - Ele foi compilado para usar os arquivos e recursos da Nightly 2026-11-03.
           - Não escolha outra versão como base ao importar.
           - A compatibilidade de execução e renderização ainda precisa ser validada no Windows 7 real.
+          - Controles nativos Windows.Gaming.Input ficam desativados nesta versão por dependerem de WinRT; teclado e mouse continuam disponíveis.
           - O launcher Win7 não se autoatualiza para evitar substituir esta versão por uma versão moderna incompatível.
           "@
           [System.IO.File]::WriteAllText((Join-Path $stage "LEIA-ME-Windows7.txt"), $readme, [System.Text.UTF8Encoding]::new($false))
