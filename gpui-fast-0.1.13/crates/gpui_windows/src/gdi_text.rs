@@ -160,7 +160,7 @@ impl GdiTextSystem {
                 unsafe {
                     GetGlyphIndicesW(
                         dc,
-                        &utf16,
+                        PCWSTR::from_raw(utf16.as_ptr()),
                         utf16.len() as i32,
                         indices.as_mut_ptr(),
                         GGI_MARK_NONEXISTING_GLYPHS,
