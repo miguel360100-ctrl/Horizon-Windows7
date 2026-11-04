@@ -498,7 +498,7 @@ fn with_font<T>(
     logfont.lfHeight = -(font_size * dpi_scale).round().max(1.0) as i32;
     logfont.lfWeight = descriptor.weight.0.round() as i32;
     logfont.lfItalic = u8::from(descriptor.style != FontStyle::Normal);
-    logfont.lfQuality = CLEARTYPE_QUALITY.0 as u8;
+    logfont.lfQuality = CLEARTYPE_QUALITY;
 
     let family = if descriptor.family.as_str() == ".SystemUIFont" {
         DEFAULT_FAMILY
