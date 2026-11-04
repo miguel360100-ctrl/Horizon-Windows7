@@ -10,6 +10,7 @@ on:
     paths:
       - "gpui-fast-0.1.13/**"
       - ".github/workflows/horizon-launcher-win7.yml"
+      - "tools/patch-win7-import.py"
 
 permissions:
   contents: read
