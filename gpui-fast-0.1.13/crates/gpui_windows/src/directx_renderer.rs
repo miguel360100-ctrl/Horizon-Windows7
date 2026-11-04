@@ -8,6 +8,7 @@ use gpui_util::ResultExt;
 use windows::{
     Win32::{
         Foundation::HWND,
+        System::LibraryLoader::{GetProcAddress, LoadLibraryA},
         Graphics::{
             Direct3D::*,
             Direct3D11::*,
@@ -16,7 +17,7 @@ use windows::{
             Dxgi::{Common::*, *},
         },
     },
-    core::{HSTRING, Interface},
+    core::{HSTRING, Interface, PCSTR},
 };
 
 use crate::directx_renderer::shader_resources::{RawShaderBytes, ShaderModule, ShaderTarget};
@@ -167,23 +168,40 @@ impl DirectXRenderer {
             .context("Creating DirectX devices")?;
         let atlas = Arc::new(DirectXAtlas::new(&devices.device, &devices.device_context));
 
-        let resources = DirectXResources::new(&devices, 1, 1, hwnd, disable_direct_composition)
-            .context("Creating DirectX resources")?;
+        // DirectComposition is not present on Windows 7. Probe it before
+        // creating resources so that a failed COM activation selects the
+        // legacy HWND swap-chain path instead of aborting window creation.
+        let direct_composition = if disable_direct_composition {
+            None
+        } else {
+            match DirectComposition::new(devices.dxgi_device.as_ref().unwrap(), hwnd) {
+                Ok(composition) => Some(composition),
+                Err(error) => {
+                    log::warn!(
+                        "DirectComposition is unavailable; falling back to a legacy HWND swap chain: {error:#}"
+                    );
+                    None
+                }
+            }
+        };
+        let use_legacy_swap_chain = direct_composition.is_none();
+        let resources = DirectXResources::new(
+            &devices,
+            1,
+            1,
+            hwnd,
+            use_legacy_swap_chain,
+        )
+        .context("Creating DirectX resources")?;
         let globals = DirectXGlobalElements::new(&devices.device)
             .context("Creating DirectX global elements")?;
         let pipelines = DirectXRenderPipelines::new(&devices.device)
             .context("Creating DirectX render pipelines")?;
-
-        let direct_composition = if disable_direct_composition {
-            None
-        } else {
-            let composition = DirectComposition::new(devices.dxgi_device.as_ref().unwrap(), hwnd)
-                .context("Creating DirectComposition")?;
+        if let Some(composition) = &direct_composition {
             composition
                 .set_swap_chain(&resources.swap_chain)
                 .context("Setting swap chain for DirectComposition")?;
-            Some(composition)
-        };
+        }
 
         Ok(DirectXRenderer {
             hwnd,
@@ -1310,7 +1328,36 @@ impl Drop for DirectXRenderer {
 
 #[inline]
 fn get_comp_device(dxgi_device: &IDXGIDevice) -> Result<IDCompositionDevice> {
-    Ok(unsafe { DCompositionCreateDevice(dxgi_device)? })
+    // dcomp.dll is absent on Windows 7. Resolve the entry point dynamically
+    // so the process loader never requires that DLL merely to start Horizon.
+    type CreateDeviceFn = unsafe extern "system" fn(
+        *mut std::ffi::c_void,
+        *const windows::core::GUID,
+        *mut *mut std::ffi::c_void,
+    ) -> windows::core::HRESULT;
+
+    let module = unsafe {
+        LoadLibraryA(PCSTR::from_raw(b"dcomp.dll\\0".as_ptr()))
+            .context("Loading dcomp.dll")?
+    };
+    let entry = unsafe {
+        GetProcAddress(
+            module,
+            PCSTR::from_raw(b"DCompositionCreateDevice\\0".as_ptr()),
+        )
+    }
+    .context("DCompositionCreateDevice is not exported")?;
+    let create_device: CreateDeviceFn = unsafe { std::mem::transmute(entry) };
+    let mut output = std::ptr::null_mut();
+    unsafe {
+        create_device(
+            dxgi_device.as_raw(),
+            &IDCompositionDevice::IID,
+            &mut output,
+        )
+        .ok()?;
+        Ok(Interface::from_raw(output))
+    }
 }
 
 pub(crate) fn create_swap_chain_for_composition(
@@ -1416,7 +1463,7 @@ fn create_resources(
 
 #[inline]
 pub(crate) fn create_render_target_and_its_view(
-    swap_chain: &IDXGISwapChain1,
+    swap_chain: &IDXGISwapChain,
     device: &ID3D11Device,
 ) -> Result<(ID3D11Texture2D, Option<ID3D11RenderTargetView>)> {
     let render_target: ID3D11Texture2D = unsafe { swap_chain.GetBuffer(0) }?;
