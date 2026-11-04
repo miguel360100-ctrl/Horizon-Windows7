@@ -84,6 +84,25 @@ jobs:
         run: |
           cargo +nightly check --manifest-path horizon/launcher/Cargo.toml --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
 
+      # GPUI's older windows-rs bindings link windows.0.48.5.lib. The launcher
+      # lockfile already supplies newer Windows import libraries, so provide this
+      # exact version explicitly rather than silently substituting a different ABI.
+      - name: Provide the Windows 0.48.5 MSVC import library
+        shell: pwsh
+        run: |
+          $metadata = Invoke-RestMethod "https://crates.io/api/v1/crates/windows_x86_64_msvc/0.48.5"
+          $archive = Join-Path $env:RUNNER_TEMP "windows_x86_64_msvc-0.48.5.crate"
+          $extract = Join-Path $env:RUNNER_TEMP "windows_x86_64_msvc-0.48.5"
+          Invoke-WebRequest "https://static.crates.io/crates/windows_x86_64_msvc/windows_x86_64_msvc-0.48.5.crate" -OutFile $archive
+          $actual = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $metadata.version.checksum) { throw "Crates.io checksum mismatch for windows_x86_64_msvc 0.48.5" }
+          New-Item -ItemType Directory -Force -Path $extract | Out-Null
+          tar -xf $archive -C $extract
+          $lib = Join-Path $extract "windows_x86_64_msvc-0.48.5/lib"
+          if (-not (Test-Path (Join-Path $lib "windows.0.48.5.lib"))) { throw "Expected Windows 0.48.5 import library was not found" }
+          Add-Content $env:GITHUB_ENV "RUSTFLAGS=-C target-feature=+crt-static -L native=$lib"
+          Write-Host "Verified and added the exact Windows 0.48.5 import library."
+
       - name: Build the original Horizon launcher for Windows 7
         shell: pwsh
         run: |
