@@ -889,14 +889,33 @@ impl DirectXRenderer {
     pub(crate) fn get_font_info() -> &'static FontInfo {
         static CACHED_FONT_INFO: OnceLock<FontInfo> = OnceLock::new();
         CACHED_FONT_INFO.get_or_init(|| unsafe {
-            let factory: IDWriteFactory5 = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED).unwrap();
-            let render_params: IDWriteRenderingParams1 =
-                factory.CreateRenderingParams().unwrap().cast().unwrap();
-            FontInfo {
-                gamma_ratios: gpui::get_gamma_correction_ratios(render_params.GetGamma()),
-                grayscale_enhanced_contrast: render_params.GetGrayscaleEnhancedContrast(),
-                subpixel_enhanced_contrast: render_params.GetEnhancedContrast(),
-                is_bgr: render_params.GetPixelGeometry() == DWRITE_PIXEL_GEOMETRY_BGR,
+            #[cfg(not(feature = "windows7-compat"))]
+            {
+                let factory: IDWriteFactory5 =
+                    DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED).unwrap();
+                let render_params: IDWriteRenderingParams1 =
+                    factory.CreateRenderingParams().unwrap().cast().unwrap();
+                FontInfo {
+                    gamma_ratios: gpui::get_gamma_correction_ratios(render_params.GetGamma()),
+                    grayscale_enhanced_contrast: render_params.GetGrayscaleEnhancedContrast(),
+                    subpixel_enhanced_contrast: render_params.GetEnhancedContrast(),
+                    is_bgr: render_params.GetPixelGeometry() == DWRITE_PIXEL_GEOMETRY_BGR,
+                }
+            }
+            #[cfg(feature = "windows7-compat")]
+            {
+                // Windows 7 ships DirectWrite 1.0, but not IDWriteFactory5 or
+                // IDWriteRenderingParams1. Query only the original interfaces.
+                let factory: IDWriteFactory =
+                    DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED).unwrap();
+                let render_params: IDWriteRenderingParams =
+                    factory.CreateRenderingParams().unwrap();
+                FontInfo {
+                    gamma_ratios: gpui::get_gamma_correction_ratios(render_params.GetGamma()),
+                    grayscale_enhanced_contrast: 0.0,
+                    subpixel_enhanced_contrast: render_params.GetEnhancedContrast(),
+                    is_bgr: render_params.GetPixelGeometry() == DWRITE_PIXEL_GEOMETRY_BGR,
+                }
             }
         })
     }
