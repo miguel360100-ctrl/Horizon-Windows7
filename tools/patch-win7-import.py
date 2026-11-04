@@ -61,6 +61,9 @@ struct PackageExtras {
 }
 
 const PACKAGE_METADATA: &str = "horizon-win7-build.json";
+const PACKAGE_BASE: &str = "nightly-2026-11-03";
+const PACKAGE_SOURCE_COMMIT: &str = "294448014fba585f8d5d09dd8886f482493b6417";
+const PACKAGE_TARGET: &str = "x86_64-win7-windows-msvc";
 const COMPANION_BASES: [&str; 3] = ["horizon-ctl", "horizon-prepare", "horizon-server"];
 
 fn companion_names() -> Vec<String> {
@@ -116,11 +119,15 @@ fn extras_from_zip<R: Read + Seek>(
             if metadata["schema"].as_u64() != Some(1) {
                 return Err(format!("{file}: unsupported {PACKAGE_METADATA} schema"));
             }
-            let base = metadata["base"]
-                .as_str()
-                .filter(|value| !value.is_empty())
-                .ok_or_else(|| format!("{file}: {PACKAGE_METADATA} has no base release"))?;
-            extras.base = Some(base.to_owned());
+            if metadata["base"].as_str() != Some(PACKAGE_BASE)
+                || metadata["source_commit"].as_str() != Some(PACKAGE_SOURCE_COMMIT)
+                || metadata["target"].as_str() != Some(PACKAGE_TARGET)
+            {
+                return Err(format!(
+                    "{file}: {PACKAGE_METADATA} does not match the pinned Windows 7 game build"
+                ));
+            }
+            extras.base = Some(PACKAGE_BASE.to_owned());
         } else if nested
             && inner.is_none()
             && [".zip", ".tar.gz", ".tgz"]
@@ -241,7 +248,13 @@ replace_once(
                 format!("unsupported companion executable: {name}"),
             ));
         }
-        fs::write(partial.join(name), bytes)?;
+        let path = partial.join(name);
+        if let Ok(metadata) = fs::metadata(&path) {
+            let mut permissions = metadata.permissions();
+            permissions.set_readonly(false);
+            fs::set_permissions(&path, permissions)?;
+        }
+        fs::write(path, bytes)?;
     }
 ''',
 "write companion executables",
@@ -274,7 +287,7 @@ test = r'''    #[test]
             zip.write_all(body).unwrap();
         }
         zip.start_file(PACKAGE_METADATA, options).unwrap();
-        zip.write_all(br#"{"schema":1,"base":"nightly-2026-11-03","source_commit":"294448014fba585f8d5d09dd8886f482493b6417"}"#).unwrap();
+        zip.write_all(br#"{"schema":1,"base":"nightly-2026-11-03","source_commit":"294448014fba585f8d5d09dd8886f482493b6417","target":"x86_64-win7-windows-msvc"}"#).unwrap();
         zip.finish().unwrap();
 
         let extras = read_package_extras(&archive_path, "Horizon-Windows7-Game-Binaries.zip").unwrap();
