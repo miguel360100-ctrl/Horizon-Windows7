@@ -145,4 +145,128 @@ gfx = gfx.replace(old_doc, new_doc, 1)
 gfx_path.write_text(gfx, encoding="utf-8", newline="\n")
 
 graphics_path.write_text(text, encoding="utf-8", newline="\n")
+
+# Keep the renderer's unit tests buildable too after WGPU's DX12 feature is removed.
+gfx_tests_old = """    fn auto_tries_vulkan_then_directx_12_then_opengl() {
+        use super::{GraphicsApi, backend_order};
+        use wgpu::Backends;
+        let order = |api, os| backend_order(api, os, false);
+        assert_eq!(
+            order(GraphicsApi::Auto, "windows"),
+            [Backends::VULKAN, Backends::DX12, Backends::GL]
+        );
+        assert_eq!(order(GraphicsApi::Vulkan, "windows"), [Backends::VULKAN]);
+        assert_eq!(order(GraphicsApi::Dx12, "windows"), [Backends::DX12]);
+        assert_eq!(order(GraphicsApi::OpenGl, "windows"), [Backends::GL]);
+        assert_eq!(
+            order(GraphicsApi::Auto, "linux"),
+            [Backends::VULKAN, Backends::GL]
+        );
+        assert_eq!(order(GraphicsApi::Dx12, "linux"), [Backends::VULKAN]);
+        assert_eq!(order(GraphicsApi::OpenGl, "linux"), [Backends::GL]);
+        // WGPU_BACKEND picks the backends itself; macOS has Metal only.
+        for api in GraphicsApi::ALL {
+            assert_eq!(backend_order(api, "windows", true), [Backends::default()]);
+            assert_eq!(order(api, "macos"), [Backends::default()]);
+        }
+    }"""
+gfx_tests_new = """    fn auto_tries_vulkan_then_opengl() {
+        use super::{GraphicsApi, backend_order};
+        use wgpu::Backends;
+        let order = |api, os| backend_order(api, os, false);
+        assert_eq!(
+            order(GraphicsApi::Auto, "windows"),
+            [Backends::VULKAN, Backends::GL]
+        );
+        assert_eq!(order(GraphicsApi::Vulkan, "windows"), [Backends::VULKAN]);
+        assert_eq!(order(GraphicsApi::Dx12, "windows"), [Backends::GL]);
+        assert_eq!(order(GraphicsApi::OpenGl, "windows"), [Backends::GL]);
+        assert_eq!(
+            order(GraphicsApi::Auto, "linux"),
+            [Backends::VULKAN, Backends::GL]
+        );
+        assert_eq!(order(GraphicsApi::Dx12, "linux"), [Backends::VULKAN]);
+        assert_eq!(order(GraphicsApi::OpenGl, "linux"), [Backends::GL]);
+        // WGPU_BACKEND picks the backends itself; macOS has Metal only.
+        for api in GraphicsApi::ALL {
+            assert_eq!(backend_order(api, "windows", true), [Backends::default()]);
+            assert_eq!(order(api, "macos"), [Backends::default()]);
+        }
+    }"""
+if gfx.count(gfx_tests_old) != 1:
+    raise SystemExit("Win7 graphics backend-order tests: expected one test block")
+gfx = gfx.replace(gfx_tests_old, gfx_tests_new, 1)
+
+search_old = """        let (v, d, g) = (Backends::VULKAN, Backends::DX12, Backends::GL);
+        // #5185: DirectX 12 chosen on an Intel HD 2500 (WARP only): OpenGL's GPU before WARP.
+        assert_eq!(
+            device_search(GraphicsApi::Dx12, "windows", false),
+            [(vec![d], false), (vec![g], false), (vec![d], true)]
+        );
+        assert_eq!(
+            device_search(GraphicsApi::Vulkan, "windows", false),
+            [(vec![v], false), (vec![d, g], false), (vec![v], true)]
+        );
+        assert_eq!(
+            device_search(GraphicsApi::Auto, "windows", false),
+            [(vec![v, d, g], false), (vec![v, d, g], true)]
+        );"""
+search_new = """        let (v, g) = (Backends::VULKAN, Backends::GL);
+        assert_eq!(
+            device_search(GraphicsApi::Dx12, "windows", false),
+            [(vec![g], false), (vec![g], true)]
+        );
+        assert_eq!(
+            device_search(GraphicsApi::Vulkan, "windows", false),
+            [(vec![v], false), (vec![g], false), (vec![v], true)]
+        );
+        assert_eq!(
+            device_search(GraphicsApi::Auto, "windows", false),
+            [(vec![v, g], false), (vec![v, g], true)]
+        );"""
+if gfx.count(search_old) != 1:
+    raise SystemExit("Win7 graphics device-search tests: expected one test block")
+gfx = gfx.replace(search_old, search_new, 1)
+gfx_path.write_text(gfx, encoding="utf-8", newline="\n")
+
+culling_path = root / "crates/horizon-client-render/src/gfx/gpu_culling.rs"
+culling = culling_path.read_text(encoding="utf-8")
+old_device = """    fn device(
+        backends: wgpu::Backends,
+        compiler: wgpu::Dx12Compiler,
+        name: &str,
+    ) -> Option<(wgpu::Device, wgpu::Queue)> {
+        let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
+        desc.backends = backends;
+        desc.backend_options.dx12.shader_compiler = compiler;"""
+new_device = """    fn device(
+        backends: wgpu::Backends,
+        name: &str,
+    ) -> Option<(wgpu::Device, wgpu::Queue)> {
+        let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
+        desc.backends = backends;"""
+if culling.count(old_device) != 1:
+    raise SystemExit("Win7 GPU culling test device helper: expected one DX12 compiler signature")
+culling = culling.replace(old_device, new_device, 1)
+old_devices = """        for (backends, compiler, name) in [
+            (wgpu::Backends::VULKAN, Default::default(), "Vulkan"),
+            (
+                wgpu::Backends::DX12,
+                wgpu::Dx12Compiler::Fxc,
+                "DirectX 12, FXC",
+            ),
+            (
+                wgpu::Backends::DX12,
+                wgpu::Dx12Compiler::default_dynamic_dxc(),
+                "DirectX 12, DXC",
+            ),
+        ] {
+            if let Some((device, queue)) = device(backends, compiler, name) {"""
+new_devices = """        for (backends, name) in [(wgpu::Backends::VULKAN, "Vulkan")] {
+            if let Some((device, queue)) = device(backends, name) {"""
+if culling.count(old_devices) != 1:
+    raise SystemExit("Win7 GPU culling test device list: expected one DX12 list")
+culling = culling.replace(old_devices, new_devices, 1)
+culling_path.write_text(culling, encoding="utf-8", newline="\n")
+
 print("Disabled WGPU DX12 and removed DirectX 12 from the Windows 7 graphics choices.")
