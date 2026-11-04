@@ -1,7 +1,7 @@
 name: Horizon launcher Windows 7 integration
 
 concurrency:
-  group: horizon-launcher-win7-${{ github.ref }}
+  group: horizon-launcher-win7-recovery-${{ github.ref }}
   cancel-in-progress: true
 
 on:
