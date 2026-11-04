@@ -55,12 +55,12 @@ jobs:
         shell: pwsh
         working-directory: horizon
         run: |
-          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\\Installer\\vswhere.exe"
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
           if (-not (Test-Path $vswhere)) { throw "vswhere.exe was not found" }
           $vs = & $vswhere -latest -property installationPath
           if (-not $vs) { throw "Visual Studio installation was not found" }
-          $dumpbin = Get-ChildItem "$vs\\VC\\Tools\\MSVC" -Filter dumpbin.exe -Recurse |
-            Where-Object { $_.FullName.EndsWith('\\Hostx64\\x64\\dumpbin.exe', [StringComparison]::OrdinalIgnoreCase) } |
+          $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC" -Filter dumpbin.exe -Recurse |
+            Where-Object { $_.FullName.EndsWith('\Hostx64\x64\dumpbin.exe', [StringComparison]::OrdinalIgnoreCase) } |
             Select-Object -First 1
           if (-not $dumpbin) { throw "dumpbin.exe was not found" }
           $binary = "target/x86_64-win7-windows-msvc/release/horizon-client.exe"
