@@ -181,18 +181,21 @@ jobs:
       - name: Smoke-test per-user setup and uninstall
         shell: pwsh
         run: |
-          $installRoot = Join-Path $env:RUNNER_TEMP "Horizon Win7 setup smoke"
+          $installRoot = Join-Path $env:RUNNER_TEMP "HorizonWin7SetupSmoke"
           $installedDir = Join-Path $installRoot "Horizon Launcher"
           $installedExe = Join-Path $installedDir "horizon-launcher.exe"
-          & ".\Horizon-Windows7-Setup.exe" setup --quiet --dir $installRoot --desktop-shortcut
-          if ($LASTEXITCODE -ne 0) { throw "The setup executable failed with exit code $LASTEXITCODE" }
+          $setupExe = (Resolve-Path ".\Horizon-Windows7-Setup.exe").Path
+          $setup = Start-Process -FilePath $setupExe -ArgumentList @("setup", "--quiet", "--dir", $installRoot, "--desktop-shortcut") -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "The setup executable failed with exit code $($setup.ExitCode)" }
           if (-not (Test-Path $installedExe)) { throw "The installed launcher was not copied to $installedExe" }
-          & $installedExe uninstall --quiet
-          if ($LASTEXITCODE -ne 0) { throw "The uninstall command failed with exit code $LASTEXITCODE" }
+          $uninstall = Start-Process -FilePath $installedExe -ArgumentList @("uninstall", "--quiet") -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw "The uninstall command failed with exit code $($uninstall.ExitCode)" }
           if (Test-Path $installedExe) { throw "The launcher executable remains after uninstall" }
           if (Test-Path $installedDir) { throw "The launcher install folder remains after uninstall" }
           $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\HorizonLauncher"
           if (Test-Path $uninstallKey) { throw "The uninstall registry entry remains after uninstall" }
+          $ownKey = "HKCU:\Software\Horizon\Launcher"
+          if (Test-Path $ownKey) { throw "The launcher private registry entry remains after uninstall" }
           Write-Host "Per-user install and uninstall smoke test passed."
 
       - name: Upload Windows 7 setup executable
