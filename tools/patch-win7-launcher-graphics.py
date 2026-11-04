@@ -8,9 +8,10 @@ main = main_path.read_text(encoding="utf-8")
 
 # Replace the exact function by its stable surrounding headings instead of matching
 # every formatting detail. This is intentionally strict about the expected upstream version.
-start = backend.find("pub fn switch_to_dx12(")
-end = backend.find("\n/// The last", start)
-if start < 0 or end < 0:
+function = backend.find("pub fn switch_to_dx12(")
+start = backend.rfind("/// Sets ", 0, function)
+end = backend.find("\n/// The last", function)
+if function < 0 or start < 0 or end < 0:
     raise SystemExit("Could not locate the upstream Vulkan crash fallback function")
 new_function = r'''/// Sets \`graphicsApi:opengl\` in \`home\`'s graphics settings when unset, auto, or a
 /// legacy DX12 preference. Windows 7 has no DirectX 12 runtime; OpenGL is the fallback.
