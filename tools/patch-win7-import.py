@@ -29,6 +29,13 @@ replace_once(
     // Plain EXE imports remain compatible with the original import flow.
     let extras = read_package_extras(path, &file)?;
     let selected = backend::Settings::load().selected;
+    if let (Some(requested), Some(package_base)) = (requested, extras.base.as_deref()) {
+        if requested != package_base {
+            return Err(format!(
+                "This Windows 7 build was compiled for {package_base}, not {requested}.                  Install and select {package_base} before importing it."
+            ));
+        }
+    }
     let requested_base = requested.or(extras.base.as_deref());
     let base = base_for(&backend::installed(), requested_base, selected.as_deref())?;
     let date = chrono::Local::now().format("%Y-%m-%d").to_string();
@@ -123,9 +130,26 @@ fn extras_from_zip<R: Read + Seek>(
             inner = Some((i, name));
         }
     }
-    if !extras.helpers.is_empty() || extras.base.is_some() {
+    if let Some(base) = extras.base.as_deref() {
+        for expected in &names {
+            if !extras.helpers.iter().any(|(found, _)| found == expected) {
+                return Err(format!("{file}: {PACKAGE_METADATA} declares a complete Win7 package, but {expected} is missing"));
+            }
+        }
+        if extras.helpers.len() != names.len() {
+            return Err(format!("{file}: {PACKAGE_METADATA} has an unexpected companion executable"));
+        }
+        let _ = base;
+        #[cfg(windows)]
+        for (name, bytes) in &extras.helpers {
+            if !bytes.starts_with(b"MZ") {
+                return Err(format!("{file}: {name} is not a Windows executable"));
+            }
+        }
         return Ok(extras);
     }
+    // Ordinary official ZIPs also contain helper executables; leave their
+    // existing import behavior unchanged unless our explicit metadata is present.
     let Some((i, name)) = inner else {
         return Ok(extras);
     };
@@ -176,7 +200,7 @@ fn install_in_with_extras(
         Sha256::digest(program).iter().map(|b| format!("{b:02x}")).collect()
     } else {
         let mut hash = Sha256::new();
-        hash.update(b"horizon imported package v1\\\\0");
+        hash.update(b"horizon imported package v1\\0");
         hash.update(program);
         if let Some(base) = &extras.base {
             hash.update(base.as_bytes());
