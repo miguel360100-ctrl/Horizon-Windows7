@@ -13,7 +13,10 @@ use std::{
 use anyhow::{Context as _, Result, anyhow};
 use gpui::*;
 use parking_lot::RwLock;
-use windows::{Win32::Graphics::Gdi::*};
+use windows::{
+    Win32::{Foundation::SIZE, Graphics::Gdi::*},
+    core::PCWSTR,
+};
 
 const BASE_EM_SIZE: i32 = 2048;
 const DEFAULT_FAMILY: &str = "Segoe UI";
@@ -91,14 +94,14 @@ impl GdiTextSystem {
                 GetGlyphOutlineW(
                     dc,
                     glyph_id.0,
-                    GGO_METRICS | GGO_GLYPH_INDEX,
+                    GET_GLYPH_OUTLINE_FORMAT(GGO_METRICS.0 | GGO_GLYPH_INDEX.0),
                     &mut metrics,
                     0,
                     None,
                     &transform,
                 )
             };
-            if result == GDI_ERROR {
+            if result == u32::MAX {
                 return Err(anyhow!("GetGlyphOutlineW failed for glyph {}", glyph_id.0));
             }
             Ok((metrics, dpi_scale))
@@ -113,7 +116,7 @@ impl GdiTextSystem {
             let result = unsafe {
                 GetGlyphIndicesW(
                     dc,
-                    &utf16,
+                    PCWSTR::from_raw(utf16.as_ptr()),
                     utf16.len() as i32,
                     indices.as_mut_ptr(),
                     GGI_MARK_NONEXISTING_GLYPHS,
@@ -164,7 +167,7 @@ impl GdiTextSystem {
                     )
                 }
             };
-            if converted == GDI_ERROR {
+            if converted == u32::MAX {
                 return Err(anyhow!("GetGlyphIndicesW failed while laying out text"));
             }
 
@@ -355,7 +358,7 @@ impl PlatformTextSystem for GdiTextSystem {
             |dc, _| {
                 let transform = identity_mat2();
                 let mut metrics = GLYPHMETRICS::default();
-                let format = GGO_GRAY8_BITMAP | GGO_GLYPH_INDEX;
+                let format = GET_GLYPH_OUTLINE_FORMAT(GGO_GRAY8_BITMAP.0 | GGO_GLYPH_INDEX.0);
                 let buffer_size = unsafe {
                     GetGlyphOutlineW(
                         dc,
@@ -367,7 +370,7 @@ impl PlatformTextSystem for GdiTextSystem {
                         &transform,
                     )
                 };
-                if buffer_size == GDI_ERROR {
+                if buffer_size == u32::MAX {
                     return Err(anyhow!(
                         "GDI could not rasterize glyph {}",
                         params.glyph_id.0
@@ -395,7 +398,7 @@ impl PlatformTextSystem for GdiTextSystem {
                         &transform,
                     )
                 };
-                if written == GDI_ERROR {
+                if written == u32::MAX {
                     return Err(anyhow!("GDI glyph bitmap extraction failed"));
                 }
 
