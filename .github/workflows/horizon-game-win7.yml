@@ -1,7 +1,7 @@
 name: Horizon game Windows 7 compatibility
 
 concurrency:
-  group: horizon-game-win7-${{ github.ref }}
+  group: horizon-game-win7-recovery-${{ github.ref }}
   cancel-in-progress: true
 
 on:
