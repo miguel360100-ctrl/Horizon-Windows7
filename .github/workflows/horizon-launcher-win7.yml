@@ -91,6 +91,21 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Could not patch the original Horizon build import flow" }
           python win7-port/tools/patch-win7-launcher-graphics.py horizon/launcher/src/backend.rs horizon/launcher/src/main.rs
           if ($LASTEXITCODE -ne 0) { throw "Could not patch the Win7 graphics recovery path" }
+          $installer = "horizon/launcher/src/installer.rs"
+          $installerText = Get-Content $installer -Raw
+          $oldInstalledCheck = "if own.starts_with(&dir) {"
+          $newInstalledCheck = @'
+          let own_parent = own.parent().unwrap_or_else(|| Path::new(""));
+          let own_is_installed = match (own_parent.canonicalize(), dir.canonicalize()) {
+              (Ok(own_parent), Ok(install_dir)) => same_path(&own_parent, &install_dir),
+              _ => same_path(own_parent, &dir),
+          };
+          if own_is_installed {
+          '@
+          if (-not $installerText.Contains($oldInstalledCheck)) { throw "Installer self-removal path check was not found" }
+          $installerText = $installerText.Replace($oldInstalledCheck, $newInstalledCheck.Trim())
+          Set-Content -Path $installer -Value $installerText -NoNewline
+          Write-Host "The uninstaller now compares canonical Windows paths before moving its running executable aside."
           Write-Host "The original import UI installs complete Win7 packages; Vulkan crash recovery falls back to OpenGL."
 
       # Keep the requested distribution filename while preserving the original setup
@@ -210,8 +225,11 @@ jobs:
           $setup = Start-Process -FilePath $setupExe -ArgumentList @("setup", "--quiet", "--dir", $installRoot, "--desktop-shortcut") -Wait -PassThru
           if ($setup.ExitCode -ne 0) { throw "The setup executable failed with exit code $($setup.ExitCode)" }
           if (-not (Test-Path $installedExe)) { throw "The installed launcher was not copied to $installedExe" }
-          $uninstall = Start-Process -FilePath $installedExe -ArgumentList @("uninstall", "--quiet") -Wait -PassThru
-          if ($uninstall.ExitCode -ne 0) { throw "The uninstall command failed with exit code $($uninstall.ExitCode)" }
+          $uninstallOutput = & $installedExe uninstall --quiet 2>&1
+          $uninstallExit = $LASTEXITCODE
+          if ($uninstallOutput) { $uninstallOutput | ForEach-Object { Write-Host $_ } }
+          if ($uninstallExit -ne 0) { throw "The uninstall command failed with exit code $uninstallExit" }
+          if ($uninstallOutput -match "Not removed:") { throw "The uninstaller reported files or registry entries it could not remove" }
           if (Test-Path $installedExe) { throw "The launcher executable remains after uninstall" }
           if (Test-Path $installedDir) { throw "The launcher install folder remains after uninstall" }
           $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\HorizonLauncher"
