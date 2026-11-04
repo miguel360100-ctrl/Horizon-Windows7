@@ -9,7 +9,6 @@ use windows::{
         System::SystemServices::*,
         UI::{
             Controls::*,
-            HiDpi::*,
             Input::{Ime::*, KeyboardAndMouse::*},
             WindowsAndMessaging::*,
         },
@@ -19,6 +18,22 @@ use windows::{
 
 use crate::*;
 use gpui::*;
+
+/// Query window DPI using GDI, which is available on Windows 7.
+/// GetDpiForWindow is only exported on Windows 10 and causes a loader failure.
+fn get_dpi_for_window_compat(hwnd: HWND) -> u32 {
+    let dc = unsafe { GetDC(Some(hwnd)) };
+    if dc.is_invalid() {
+        return USER_DEFAULT_SCREEN_DPI;
+    }
+    let dpi = unsafe { GetDeviceCaps(Some(dc), LOGPIXELSX) };
+    unsafe { ReleaseDC(Some(hwnd), dc) };
+    if dpi > 0 {
+        dpi as u32
+    } else {
+        USER_DEFAULT_SCREEN_DPI
+    }
+}
 
 pub(crate) const WM_GPUI_CURSOR_STYLE_CHANGED: u32 = WM_USER + 1;
 pub(crate) const WM_GPUI_CLOSE_ONE_WINDOW: u32 = WM_USER + 2;
@@ -785,7 +800,7 @@ impl WindowsWindowInner {
             let result = DefWindowProcW(handle, WM_NCCALCSIZE, wparam, lparam);
             (*params).rgrc[0].top = saved_top;
             if self.state.is_maximized() {
-                let dpi = GetDpiForWindow(handle);
+                let dpi = get_dpi_for_window_compat(handle);
                 (*params).rgrc[0].top += get_frame_thicknessx(dpi);
             }
             Some(result.0 as isize)
@@ -993,7 +1008,7 @@ impl WindowsWindowInner {
             return drag_area;
         }
 
-        let dpi = unsafe { GetDpiForWindow(handle) };
+        let dpi = get_dpi_for_window_compat(handle);
         // We do not use the OS title bar, so the default `DefWindowProcW` will only register a 1px edge for resizes
         // We need to calculate the frame thickness ourselves and do the hit test manually.
         let frame_y = get_frame_thicknessx(dpi);
