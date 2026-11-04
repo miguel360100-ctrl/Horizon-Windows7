@@ -78,11 +78,28 @@ jobs:
             target = "x86_64-win7-windows-msvc"
           } | ConvertTo-Json
           [System.IO.File]::WriteAllText((Join-Path $stage "horizon-win7-build.json"), $metadata, [System.Text.UTF8Encoding]::new($false))
+          $readme = @"
+          HORIZON — COMPATIBILIDADE COM WINDOWS 7 SP1 x64
+
+          1. Abra o Horizon e instale a versão oficial Nightly 2026-11-03.
+          2. Não extraia este ZIP.
+          3. No launcher, use a opção de importar um build/uma versão e selecione este arquivo.
+          4. O launcher criará uma versão separada chamada Imported e manterá a versão oficial intacta.
+          5. Selecione a versão Imported para iniciar o jogo.
+
+          IMPORTANTE:
+          - Este pacote é para Windows 7 SP1 de 64 bits.
+          - Ele foi compilado para usar os arquivos e recursos da Nightly 2026-11-03.
+          - Não escolha outra versão como base ao importar.
+          - A compatibilidade de execução e renderização ainda precisa ser validada no Windows 7 real.
+          - O launcher Win7 não se autoatualiza para evitar substituir esta versão por uma versão moderna incompatível.
+          "@
+          [System.IO.File]::WriteAllText((Join-Path $stage "LEIA-ME-Windows7.txt"), $readme, [System.Text.UTF8Encoding]::new($false))
           $archive = Join-Path (Get-Location) "Horizon-Windows7-Game-Binaries.zip"
           if (Test-Path $archive) { Remove-Item $archive -Force }
           Push-Location $stage
           try {
-            & 7z a -tzip -mx=5 $archive "horizon-client.exe" "horizon-ctl.exe" "horizon-prepare.exe" "horizon-server.exe" "horizon-win7-build.json"
+            & 7z a -tzip -mx=5 $archive "horizon-client.exe" "horizon-ctl.exe" "horizon-prepare.exe" "horizon-server.exe" "horizon-win7-build.json" "LEIA-ME-Windows7.txt"
             if ($LASTEXITCODE -ne 0 -or -not (Test-Path $archive)) { throw "Could not create the Windows 7 binaries archive" }
           } finally {
             Pop-Location
