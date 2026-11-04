@@ -140,7 +140,7 @@ new_doc = """/// device. `api` is the player's choice (`GraphicsApi::with_env` a
 /// which picks the backends itself. The Windows 7 build tries Vulkan, then OpenGL;
 /// other platforms retain their own backend order. A native crash in the driver
 /// can't be caught in the game; the launcher switches the setting to OpenGL after one at
-/// the renderer's start (#746). macOS has Metal only.
+/// the renderer's start (#746). macOS has Metal only."""
 if gfx.count(old_doc) != 1:
     raise SystemExit("Win7 backend documentation: expected one DX12 passage")
 gfx = gfx.replace(old_doc, new_doc, 1)
