@@ -242,7 +242,7 @@ fn get_scale_factor_for_monitor(_monitor: HMONITOR) -> Result<f32> {
     if dc.is_invalid() {
         return Ok(1.0);
     }
-    let dpi = unsafe { GetDeviceCaps(dc, LOGPIXELSX) };
+    let dpi = unsafe { GetDeviceCaps(Some(dc), LOGPIXELSX) };
     unsafe { ReleaseDC(None, dc) };
     if dpi > 0 {
         Ok(dpi as f32 / USER_DEFAULT_SCREEN_DPI as f32)
