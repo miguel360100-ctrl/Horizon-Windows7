@@ -40,6 +40,9 @@ jobs:
       - name: Compile GPUI Windows backend (modern Windows behavior)
         run: cargo check -p gpui_windows --all-targets
 
+      - name: Compile GPUI platform feature forwarding
+        run: cargo check -p gpui_platform --features windows7-compat
+
       - name: Record target and toolchain
         if: always()
         run: |
