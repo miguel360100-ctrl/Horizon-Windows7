@@ -54,7 +54,7 @@ jobs:
         working-directory: horizon
         shell: pwsh
         run: |
-          python win7-port/tools/patch-win7-game-graphics.py horizon
+          python ../win7-port/tools/patch-win7-game-graphics.py .
           if ($LASTEXITCODE -ne 0) { throw "Could not patch the Windows 7 graphics backends" }
 
       - name: Check the original native game client for Windows 7
