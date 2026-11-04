@@ -91,12 +91,28 @@ jobs:
             "GetDpiForMonitor",
             "GetSystemMetricsForDpi",
             "GetPointerType",
+            "GetDpiForSystem",
+            "GetThreadDpiAwarenessContext",
+            "SetThreadDpiAwarenessContext",
+            "GetWindowDpiAwarenessContext",
+            "GetCurrentPackageFullName",
+            "GetCurrentPackageFamilyName",
+            "SetThreadDescription",
+            "GetThreadDescription",
+            "GetSystemTimePreciseAsFileTime",
+            "CreateFile2",
             "RoGetActivationFactory",
             "RoOriginateErrorW",
+            "RoInitialize",
+            "WindowsCreateString",
             "WaitOnAddress",
             "WakeByAddressAll",
             "WakeByAddressSingle",
-            "ProcessPrng"
+            "ProcessPrng",
+            "api-ms-win-core-winrt-l1-1-0.dll",
+            "api-ms-win-appmodel-runtime-l1-1-0.dll",
+            "api-ms-win-core-synch-l1-2-0.dll",
+            "api-ms-win-shcore-scaling-l1-1-1.dll"
           )
           $found = @($forbidden | Where-Object { $imports -match [regex]::Escape($_) })
           if ($found.Count -gt 0) {
