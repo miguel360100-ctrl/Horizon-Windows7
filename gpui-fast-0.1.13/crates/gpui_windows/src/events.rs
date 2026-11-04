@@ -6,14 +6,14 @@ use windows::{
     Win32::{
         Foundation::*,
         Graphics::Gdi::*,
-        System::SystemServices::*,
+        System::{LibraryLoader::*, SystemServices::*},
         UI::{
             Controls::*,
             Input::{Ime::*, KeyboardAndMouse::*},
             WindowsAndMessaging::*,
         },
     },
-    core::PCWSTR,
+    core::{PCSTR, PCWSTR},
 };
 
 use crate::*;
@@ -1805,19 +1805,51 @@ pub(crate) fn current_capslock() -> Capslock {
     Capslock { on }
 }
 
-// there is some additional non-visible space when talking about window
-// borders on Windows:
-// - SM_CXSIZEFRAME: The resize handle.
-// - SM_CXPADDEDBORDER: Additional border space that isn't part of the resize handle.
+// GetSystemMetricsForDpi is only exported on Windows 10 1607+. Resolve it
+// dynamically so newer Windows retain per-window DPI behavior without making
+// that entry point a load-time requirement on Windows 7.
+fn get_system_metrics_for_dpi_compat(
+    index: SYSTEM_METRICS_INDEX,
+    dpi: u32,
+) -> i32 {
+    type GetSystemMetricsForDpiFn =
+        unsafe extern "system" fn(SYSTEM_METRICS_INDEX, u32) -> i32;
+
+    unsafe {
+        let user32 = GetModuleHandleA(PCSTR::from_raw(b"user32.dll\\0".as_ptr()))
+            .ok();
+        if let Some(user32) = user32
+            && let Some(entry) = GetProcAddress(
+                user32,
+                PCSTR::from_raw(b"GetSystemMetricsForDpi\\0".as_ptr()),
+            )
+        {
+            let get_system_metrics: GetSystemMetricsForDpiFn = std::mem::transmute(entry);
+            return get_system_metrics(index, dpi);
+        }
+
+        // Windows 7 has system-wide DPI. GetSystemMetrics already returns
+        // metrics in that DPI context, so it is the correct fallback.
+        GetSystemMetrics(index)
+    }
+}
+
+// There is some additional non-visible space around window borders:
+// - SM_CXSIZEFRAME / SM_CYSIZEFRAME: The resize handle.
+// - SM_CXPADDEDBORDER: Additional border space not part of the resize handle.
 fn get_frame_thicknessx(dpi: u32) -> i32 {
-    let resize_frame_thickness = unsafe { GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) };
-    let padding_thickness = unsafe { GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi) };
+    let resize_frame_thickness =
+        get_system_metrics_for_dpi_compat(SM_CXSIZEFRAME, dpi);
+    let padding_thickness =
+        get_system_metrics_for_dpi_compat(SM_CXPADDEDBORDER, dpi);
     resize_frame_thickness + padding_thickness
 }
 
 fn get_frame_thicknessy(dpi: u32) -> i32 {
-    let resize_frame_thickness = unsafe { GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) };
-    let padding_thickness = unsafe { GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi) };
+    let resize_frame_thickness =
+        get_system_metrics_for_dpi_compat(SM_CYSIZEFRAME, dpi);
+    let padding_thickness =
+        get_system_metrics_for_dpi_compat(SM_CXPADDEDBORDER, dpi);
     resize_frame_thickness + padding_thickness
 }
 
