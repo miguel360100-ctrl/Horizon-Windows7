@@ -150,7 +150,9 @@ fn extras_from_zip<R: Read + Seek>(
     // Ordinary official ZIPs also contain helper executables; leave their
     // existing import behavior unchanged unless our explicit metadata is present.
     let Some((i, name)) = inner else {
-        return Ok(extras);
+        // Do not import helper executables from an ordinary official ZIP; only
+        // the explicit Win7 metadata authorizes replacing the companion tools.
+        return Ok(PackageExtras::default());
     };
     let entry = zip.by_index(i).map_err(|e| format!("{file}: {e}"))?;
     let archive = read_at_most(entry, file)?;
