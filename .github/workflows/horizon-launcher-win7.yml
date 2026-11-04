@@ -129,6 +129,23 @@ jobs:
           Write-Host "Static import audit passed for the Windows 7 launcher."
           Get-Item "horizon-launcher-setup.exe" | Select-Object Name,Length
 
+      - name: Smoke-test per-user setup and uninstall
+        shell: pwsh
+        run: |
+          $installRoot = Join-Path $env:RUNNER_TEMP "Horizon Win7 setup smoke"
+          $installedDir = Join-Path $installRoot "Horizon Launcher"
+          $installedExe = Join-Path $installedDir "horizon-launcher.exe"
+          & ".\\horizon-launcher-setup.exe" setup --quiet --dir $installRoot --desktop-shortcut
+          if ($LASTEXITCODE -ne 0) { throw "The setup executable failed with exit code $LASTEXITCODE" }
+          if (-not (Test-Path $installedExe)) { throw "The installed launcher was not copied to $installedExe" }
+          & $installedExe uninstall --quiet
+          if ($LASTEXITCODE -ne 0) { throw "The uninstall command failed with exit code $LASTEXITCODE" }
+          if (Test-Path $installedExe) { throw "The launcher executable remains after uninstall" }
+          if (Test-Path $installedDir) { throw "The launcher install folder remains after uninstall" }
+          $uninstallKey = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\HorizonLauncher"
+          if (Test-Path $uninstallKey) { throw "The uninstall registry entry remains after uninstall" }
+          Write-Host "Per-user install and uninstall smoke test passed."
+
       - name: Upload Windows 7 setup executable
         uses: actions/upload-artifact@v4
         with:
