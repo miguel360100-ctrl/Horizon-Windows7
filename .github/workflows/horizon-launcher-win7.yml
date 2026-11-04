@@ -65,6 +65,20 @@ jobs:
           Set-Content -Path $manifest -Value $text -NoNewline
           Write-Host "Launcher manifest now references the patched local GPUI source."
 
+      # Keep the requested distribution filename while preserving the original setup
+      # detection and wizard: only the internal executable-name check is extended.
+      - name: Recognize the Windows 7 setup executable name
+        shell: pwsh
+        run: |
+          $installer = "horizon/launcher/src/installer.rs"
+          $text = Get-Content $installer -Raw
+          $old = 's.to_ascii_lowercase().starts_with("horizon-launcher-setup")'
+          $new = 's.to_ascii_lowercase().starts_with("horizon-launcher-setup") || s.to_ascii_lowercase().starts_with("horizon-windows7-setup")'
+          if (-not $text.Contains($old)) { throw "Original setup executable detection was not found" }
+          $text = $text.Replace($old, $new)
+          Set-Content -Path $installer -Value $text -NoNewline
+          Write-Host "The original setup wizard recognizes Horizon-Windows7-Setup.exe."
+
       - name: Check the original Horizon launcher for Windows 7
         shell: pwsh
         run: |
