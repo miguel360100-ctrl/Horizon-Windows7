@@ -1,0 +1,59 @@
+name: Horizon launcher Windows 7 integration
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "gpui-fast-0.1.13/**"
+      - ".github/workflows/horizon-launcher-win7.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  launcher-check:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out the Horizon source snapshot
+        uses: actions/checkout@v4
+        with:
+          repository: horizon-rust/horizon
+          ref: 2e540fe373ce1e453572ada2343a56e1a9544e04
+          path: horizon
+
+      - name: Check out the patched GPUI backend
+        uses: actions/checkout@v4
+        with:
+          repository: miguel360100-ctrl/Horizon-Windows7
+          ref: win7-compat-dev
+          path: win7-port
+
+      - name: Install nightly Rust and source
+        shell: pwsh
+        run: |
+          rustup toolchain install nightly --profile minimal --component rust-src
+          $targets = rustc +nightly --print target-list
+          if ($targets -notcontains "x86_64-win7-windows-msvc") {
+            throw "Nightly does not include x86_64-win7-windows-msvc"
+          }
+
+      - name: Point the original launcher at the patched GPUI source
+        shell: pwsh
+        run: |
+          $manifest = "horizon/launcher/Cargo.toml"
+          $text = Get-Content $manifest -Raw
+          $oldGpui = 'gpui = { package = "gpui-fast", version = "0.1.13" }'
+          $newGpui = 'gpui = { package = "gpui", path = "../../win7-port/gpui-fast-0.1.13/crates/gpui" }'
+          $oldPlatform = 'gpui_platform = { package = "gpui-fast-platform", version = "0.1.13", features = ["wayland", "x11", "font-kit"] }'
+          $newPlatform = 'gpui_platform = { package = "gpui_platform", path = "../../win7-port/gpui-fast-0.1.13/crates/gpui_platform", features = ["wayland", "x11", "font-kit", "windows7-compat"] }'
+          if (-not $text.Contains($oldGpui)) { throw "Expected original gpui dependency not found" }
+          if (-not $text.Contains($oldPlatform)) { throw "Expected original gpui_platform dependency not found" }
+          $text = $text.Replace($oldGpui, $newGpui).Replace($oldPlatform, $newPlatform)
+          Set-Content -Path $manifest -Value $text -NoNewline
+          Write-Host "Launcher manifest now references the patched local GPUI source."
+
+      - name: Check the original Horizon launcher for Windows 7
+        shell: pwsh
+        run: |
+          cargo +nightly check --manifest-path horizon/launcher/Cargo.toml --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
