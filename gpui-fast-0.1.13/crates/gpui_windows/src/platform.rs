@@ -204,10 +204,10 @@ fn enable_compatible_dpi_awareness() {
             if set_awareness((-4isize) as *mut std::ffi::c_void).as_bool() {
                 return;
             }
-            // A process awareness mode may already have been selected. Do not
-            // try to downgrade or overwrite it.
-            log::debug!("The process DPI awareness was already configured.");
-            return;
+            // Continue to the Windows 8.1 API: this entry point exists on
+            // Windows 10 1607, while the V2 context was added in 1703. If
+            // awareness was already set, the older API will harmlessly reject
+            // the second attempt too.
         }
 
         if let Ok(shcore) = LoadLibraryA(PCSTR::from_raw(b"shcore.dll\\0".as_ptr())) {
@@ -221,8 +221,7 @@ fn enable_compatible_dpi_awareness() {
                 if set_awareness(2) == 0 {
                     return;
                 }
-                log::debug!("The process DPI awareness was already configured by Windows.");
-                return;
+                log::debug!("The Windows 8.1 per-monitor DPI mode was unavailable or already configured.");
             }
         }
 
