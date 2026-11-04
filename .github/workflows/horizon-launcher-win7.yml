@@ -20,7 +20,8 @@ permissions:
 # Windows 7 installation does not need the Visual C++ Redistributable installed.
 env:
   RUSTFLAGS: -C target-feature=+crt-static
-  HORIZON_MSA_CLIENT_ID: ${{ vars.HORIZON_MSA_CLIENT_ID }}
+  # Public Horizon-owned Azure app registration, verified against the upstream release build.
+  HORIZON_MSA_CLIENT_ID: 331e08f8-172d-43b9-835a-3108c2fcdbf3
   HORIZON_CURSEFORGE_API_KEY: ${{ secrets.HORIZON_CURSEFORGE_API_KEY }}
   HORIZON_TELEMETRY_URL: "off"
 
