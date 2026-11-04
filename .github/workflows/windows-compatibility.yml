@@ -1,7 +1,7 @@
 name: Windows compatibility baseline
 
 concurrency:
-  group: windows-compatibility-${{ github.ref }}
+  group: windows-compatibility-recovery-${{ github.ref }}
   cancel-in-progress: true
 
 on:
