@@ -31,11 +31,14 @@ jobs:
         with:
           workspaces: gpui-fast-0.1.13 -> target
 
-      - name: Compile GPUI Windows backend
-        run: cargo check -p gpui_windows --all-targets
+      - name: Compile GPUI Windows backend (Windows 7 compatibility)
+        run: cargo check -p gpui_windows --all-targets --features windows7-compat
 
-      - name: Compile GPUI Windows tests
-        run: cargo check -p gpui_windows --tests
+      - name: Compile GPUI Windows tests (Windows 7 compatibility)
+        run: cargo check -p gpui_windows --tests --features windows7-compat
+
+      - name: Compile GPUI Windows backend (modern Windows behavior)
+        run: cargo check -p gpui_windows --all-targets
 
       - name: Record target and toolchain
         if: always()
