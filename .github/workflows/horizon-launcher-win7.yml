@@ -226,10 +226,12 @@ jobs:
           $setup = Start-Process -FilePath $setupExe -ArgumentList @("setup", "--quiet", "--dir", $installRoot, "--desktop-shortcut") -Wait -PassThru
           if ($setup.ExitCode -ne 0) { throw "The setup executable failed with exit code $($setup.ExitCode)" }
           if (-not (Test-Path $installedExe)) { throw "The installed launcher was not copied to $installedExe" }
-          $uninstallOutput = & $installedExe uninstall --quiet 2>&1
-          $uninstallExit = $LASTEXITCODE
-          if ($uninstallOutput) { $uninstallOutput | ForEach-Object { Write-Host $_ } }
-          if ($uninstallExit -ne 0) { throw "The uninstall command failed with exit code $uninstallExit" }
+          $stdoutFile = Join-Path $env:RUNNER_TEMP "horizon-uninstall.stdout"
+          $stderrFile = Join-Path $env:RUNNER_TEMP "horizon-uninstall.stderr"
+          $uninstall = Start-Process -FilePath $installedExe -ArgumentList @("uninstall", "--quiet") -Wait -PassThru -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
+          $uninstallOutput = (Get-Content $stdoutFile -Raw -ErrorAction SilentlyContinue) + (Get-Content $stderrFile -Raw -ErrorAction SilentlyContinue)
+          if ($uninstallOutput) { Write-Host $uninstallOutput }
+          if ($uninstall.ExitCode -ne 0) { throw "The uninstall command failed with exit code $($uninstall.ExitCode)" }
           if ($uninstallOutput -match "Not removed:") { throw "The uninstaller reported files or registry entries it could not remove" }
           if (Test-Path $installedExe) { throw "The launcher executable remains after uninstall" }
           if (Test-Path $installedDir) { throw "The launcher install folder remains after uninstall" }
