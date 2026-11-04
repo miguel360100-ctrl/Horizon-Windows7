@@ -55,12 +55,12 @@ jobs:
         shell: pwsh
         working-directory: horizon
         run: |
-          $binary = "target/x86_64-win7-windows-msvc/release/horizon-client.exe"
-          & $binary --version
-          if ($LASTEXITCODE -ne 0) { throw "The Windows 7 game client failed its --version startup test" }
-          & $binary --help | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "The Windows 7 game client failed its --help startup test" }
-          Write-Host "The game client starts and responds to its CLI without initializing graphics."
+          $binary = (Resolve-Path "target/x86_64-win7-windows-msvc/release/horizon-client.exe").Path
+          # The native game client has no --version option; --help is its supported
+          # no-graphics startup path and exits before renderer initialization.
+          $help = Start-Process -FilePath $binary -ArgumentList @("--help") -Wait -PassThru
+          if ($help.ExitCode -ne 0) { throw "The Windows 7 game client failed its --help startup test with exit code $($help.ExitCode)" }
+          Write-Host "The game client starts and handles --help without initializing graphics."
 
       - name: Audit game client imports against Windows 7
         shell: pwsh
