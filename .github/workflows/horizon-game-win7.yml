@@ -82,7 +82,7 @@ jobs:
           if (Test-Path $archive) { Remove-Item $archive -Force }
           Push-Location $stage
           try {
-            & 7z a -tzip -mx=5 $archive @($names + "horizon-win7-build.json")
+            & 7z a -tzip -mx=5 $archive "horizon-client.exe" "horizon-ctl.exe" "horizon-prepare.exe" "horizon-server.exe" "horizon-win7-build.json"
             if ($LASTEXITCODE -ne 0 -or -not (Test-Path $archive)) { throw "Could not create the Windows 7 binaries archive" }
           } finally {
             Pop-Location
