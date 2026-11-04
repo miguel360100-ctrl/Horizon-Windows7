@@ -65,7 +65,7 @@ jobs:
           $text = $text.Replace("[workspace]", "[workspace]`n`n[features]`nwindows7-compat = []")
           Set-Content -Path $manifest -Value $text -NoNewline
           $backend = "horizon/launcher/src/backend.rs"
-          $backendText = Get-Content $backend -Raw
+          $backendText = (Get-Content $backend -Raw).Replace("`r`n", "`n")
           $oldAsset = "pub fn launcher_asset() -> Option<&'static str> {`n    launcher_asset_running_from(appimage_path().is_some())`n}"
           $newAsset = "pub fn launcher_asset() -> Option<&'static str> {`n    if cfg!(feature = `"windows7-compat`") { None } else { launcher_asset_running_from(appimage_path().is_some()) }`n}"
           if (-not $backendText.Contains($oldAsset)) { throw "Launcher self-update asset function was not found" }
