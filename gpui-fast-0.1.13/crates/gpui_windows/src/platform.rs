@@ -185,8 +185,59 @@ impl Drop for PowerRequest {
     }
 }
 
+#[cfg(feature = "windows7-compat")]
+fn enable_compatible_dpi_awareness() {
+    // Prefer per-monitor awareness when the host OS supports it. Resolve the
+    // newer entry points dynamically so they are never imported on Windows 7.
+    unsafe {
+        let user32 = GetModuleHandleA(PCSTR::from_raw(b"user32.dll\\0".as_ptr())).ok();
+        if let Some(entry) = user32.and_then(|module| {
+            GetProcAddress(
+                module,
+                PCSTR::from_raw(b"SetProcessDpiAwarenessContext\\0".as_ptr()),
+            )
+        }) {
+            type SetProcessDpiAwarenessContextFn =
+                unsafe extern "system" fn(*mut std::ffi::c_void) -> BOOL;
+            let set_awareness: SetProcessDpiAwarenessContextFn = std::mem::transmute(entry);
+            // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 is the pseudo-handle -4.
+            if set_awareness((-4isize) as *mut std::ffi::c_void).as_bool() {
+                return;
+            }
+            // A process awareness mode may already have been selected. Do not
+            // try to downgrade or overwrite it.
+            log::debug!("The process DPI awareness was already configured.");
+            return;
+        }
+
+        if let Ok(shcore) = LoadLibraryA(PCSTR::from_raw(b"shcore.dll\\0".as_ptr())) {
+            if let Some(entry) = GetProcAddress(
+                shcore,
+                PCSTR::from_raw(b"SetProcessDpiAwareness\\0".as_ptr()),
+            ) {
+                type SetProcessDpiAwarenessFn = unsafe extern "system" fn(i32) -> i32;
+                let set_awareness: SetProcessDpiAwarenessFn = std::mem::transmute(entry);
+                // PROCESS_PER_MONITOR_DPI_AWARE = 2 (Windows 8.1+).
+                if set_awareness(2) == 0 {
+                    return;
+                }
+                log::debug!("The process DPI awareness was already configured by Windows.");
+                return;
+            }
+        }
+
+        // Windows 7 fallback: system-DPI awareness is the highest mode it offers.
+        if let Err(error) = SetProcessDPIAware() {
+            log::debug!("Could not enable system-DPI awareness: {error}");
+        }
+    }
+}
+
 impl WindowsPlatform {
     pub fn new(headless: bool) -> Result<Self> {
+        #[cfg(feature = "windows7-compat")]
+        enable_compatible_dpi_awareness();
+
         unsafe {
             OleInitialize(None).context("unable to initialize Windows OLE")?;
         }
