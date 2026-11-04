@@ -1559,6 +1559,7 @@ struct PlatformWindowCreateContext {
     dispatcher: Option<Arc<WindowsDispatcher>>,
 }
 
+#[cfg(not(feature = "windows7-compat"))]
 fn has_package_identity() -> bool {
     let mut package_full_name_length = 0;
     let result = unsafe {
@@ -1575,6 +1576,12 @@ fn has_package_identity() -> bool {
         log::warn!("failed to determine whether the process has package identity: {result:?}");
         false
     }
+}
+
+#[cfg(feature = "windows7-compat")]
+fn has_package_identity() -> bool {
+    // AppX package identity is not available on Windows 7.
+    false
 }
 
 fn open_target(target: impl AsRef<OsStr>) -> Result<()> {
