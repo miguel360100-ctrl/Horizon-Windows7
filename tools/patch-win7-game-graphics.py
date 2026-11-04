@@ -144,6 +144,15 @@ new_doc = """/// device. `api` is the player's choice (`GraphicsApi::with_env` a
 if gfx.count(old_doc) != 1:
     raise SystemExit("Win7 backend documentation: expected one DX12 passage")
 gfx = gfx.replace(old_doc, new_doc, 1)
+old_env_backends = "    descriptor.backends = backends.with_env();"
+if gfx.count(old_env_backends) != 1:
+    raise SystemExit("Win7 WGPU backend selection: expected one environment override")
+gfx = gfx.replace(old_env_backends, "    descriptor.backends = backends;", 1)
+old_env_descriptor = "    let mut descriptor = descriptor.with_env();"
+if gfx.count(old_env_descriptor) != 1:
+    raise SystemExit("Win7 WGPU instance flags: expected one environment override")
+gfx = gfx.replace(old_env_descriptor, "    let mut descriptor = descriptor;", 1)
+
 gfx_path.write_text(gfx, encoding="utf-8", newline="\n")
 
 graphics_path.write_text(text, encoding="utf-8", newline="\n")
