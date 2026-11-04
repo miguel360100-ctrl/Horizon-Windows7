@@ -1337,13 +1337,13 @@ fn get_comp_device(dxgi_device: &IDXGIDevice) -> Result<IDCompositionDevice> {
     ) -> windows::core::HRESULT;
 
     let module = unsafe {
-        LoadLibraryA(PCSTR::from_raw(b"dcomp.dll\\0".as_ptr()))
+        LoadLibraryA(PCSTR::from_raw(b"dcomp.dll\0".as_ptr()))
             .context("Loading dcomp.dll")?
     };
     let entry = unsafe {
         GetProcAddress(
             module,
-            PCSTR::from_raw(b"DCompositionCreateDevice\\0".as_ptr()),
+            PCSTR::from_raw(b"DCompositionCreateDevice\0".as_ptr()),
         )
     }
     .context("DCompositionCreateDevice is not exported")?;
