@@ -28,6 +28,11 @@ jobs:
           ref: 2e540fe373ce1e453572ada2343a56e1a9544e04
           path: horizon
 
+      - name: Set up Python for package integrity verification
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
       - name: Install nightly Rust and source
         shell: pwsh
         run: |
@@ -173,8 +178,13 @@ jobs:
           }
           $archive = Join-Path (Get-Location) "Horizon-Windows7-Game.zip"
           if (Test-Path $archive) { Remove-Item $archive -Force }
-          & 7z a -tzip -mx=5 $archive $package
-          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $archive)) { throw "Could not create the complete Windows 7 game archive" }
+          Push-Location "dist"
+          try {
+            & 7z a -tzip -mx=5 $archive ".\horizon-windows-x64-win7"
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path $archive)) { throw "Could not create the complete Windows 7 game archive" }
+          } finally {
+            Pop-Location
+          }
           Get-Item $archive | Select-Object Name,Length
 
       - name: Audit every packaged executable against Windows 7 imports
