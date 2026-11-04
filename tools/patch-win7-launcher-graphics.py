@@ -26,7 +26,7 @@ pub fn switch_to_dx12(home: &Path) -> Result<bool, String> {
     for line in text.lines() {
         match line.split_once(':') {
             Some((key, value)) if key.trim() == "graphicsApi" => {
-                if value.trim() != "auto" {
+                if value.trim() != "auto" && value.trim() != "dx12" {
                     return Ok(false);
                 }
                 found = true;
@@ -91,6 +91,20 @@ backend = backend.replace("graphicsApi:dx12", "graphicsApi:opengl")
 backend = backend.replace(
     "// Already DirectX 12, or the player's own Vulkan: left alone.",
     "// Already OpenGL, or the player's own Vulkan: left alone.",
+)
+backend = backend.replace(
+    '''        fs::write(home.join(GRAPHICS_FILE), "sky:false\ngraphicsApi:vulkan\n").unwrap();
+        assert_eq!(switch_to_opengl(&home), Ok(false));''',
+    '''        fs::write(home.join(GRAPHICS_FILE), "sky:false\ngraphicsApi:vulkan\n").unwrap();
+        assert_eq!(switch_to_opengl(&home), Ok(false));
+        // A legacy DX12 preference is unsupported on Windows 7 and migrates to OpenGL.
+        fs::write(home.join(GRAPHICS_FILE), "sky:false\ngraphicsApi:dx12\nfog:true\n").unwrap();
+        assert_eq!(switch_to_opengl(&home), Ok(true));
+        assert_eq!(
+            fs::read_to_string(home.join(GRAPHICS_FILE)).unwrap(),
+            "sky:false\ngraphicsApi:opengl\nfog:true\n"
+        );''',
+    1,
 )
 backend = backend.replace(
     "// Auto becomes DirectX 12 and the other settings stay.",
