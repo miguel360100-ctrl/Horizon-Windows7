@@ -9,6 +9,7 @@ on:
   push:
     paths:
       - ".github/workflows/horizon-game-win7.yml"
+      - "tools/patch-win7-game-graphics.py"
 
 permissions:
   contents: read
@@ -28,6 +29,13 @@ jobs:
           ref: 294448014fba585f8d5d09dd8886f482493b6417
           path: horizon
 
+      - name: Check out the Windows 7 build patches
+        uses: actions/checkout@v4
+        with:
+          repository: miguel360100-ctrl/Horizon-Windows7
+          ref: win7-compat-dev
+          path: win7-port
+
       - name: Set up Python for package integrity verification
         uses: actions/setup-python@v5
         with:
@@ -41,6 +49,13 @@ jobs:
           if ($targets -notcontains "x86_64-win7-windows-msvc") {
             throw "Nightly does not include x86_64-win7-windows-msvc"
           }
+
+      - name: Remove unsupported DirectX 12 backend from the Windows 7 game
+        working-directory: horizon
+        shell: pwsh
+        run: |
+          python win7-port/tools/patch-win7-game-graphics.py horizon
+          if ($LASTEXITCODE -ne 0) { throw "Could not patch the Windows 7 graphics backends" }
 
       - name: Check the original native game client for Windows 7
         working-directory: horizon
