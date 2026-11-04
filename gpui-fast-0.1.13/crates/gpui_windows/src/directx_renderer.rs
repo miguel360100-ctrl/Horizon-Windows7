@@ -199,7 +199,7 @@ impl DirectXRenderer {
             .context("Creating DirectX render pipelines")?;
         if let Some(composition) = &direct_composition {
             composition
-                .set_swap_chain(&resources.swap_chain)
+                 .set_swap_chain(&resources.swap_chain.cast::<IDXGISwapChain1>()?)
                 .context("Setting swap chain for DirectComposition")?;
         }
 
@@ -335,7 +335,7 @@ impl DirectXRenderer {
         } else {
             let composition =
                 DirectComposition::new(devices.dxgi_device.as_ref().unwrap(), self.hwnd)?;
-            composition.set_swap_chain(&resources.swap_chain)?;
+            composition.set_swap_chain(&resources.swap_chain.cast::<IDXGISwapChain1>()?)?;
             Some(composition)
         };
 
@@ -1060,7 +1060,7 @@ impl DirectComposition {
         })
     }
 
-    pub fn set_swap_chain(&self, swap_chain: &IDXGISwapChain) -> Result<()> {
+    pub fn set_swap_chain(&self, swap_chain: &IDXGISwapChain1) -> Result<()> {
         unsafe {
             self.comp_visual.SetContent(swap_chain)?;
             self.comp_target.SetRoot(&self.comp_visual)?;
@@ -1365,7 +1365,7 @@ pub(crate) fn create_swap_chain_for_composition(
     device: &ID3D11Device,
     width: u32,
     height: u32,
-) -> Result<IDXGISwapChain> {
+) -> Result<IDXGISwapChain1> {
     let desc = DXGI_SWAP_CHAIN_DESC1 {
         Width: width,
         Height: height,
@@ -1384,8 +1384,7 @@ pub(crate) fn create_swap_chain_for_composition(
         Flags: 0,
     };
     let factory2: IDXGIFactory2 = dxgi_factory.cast()?;
-    let swap_chain = unsafe { factory2.CreateSwapChainForComposition(device, &desc, None)? };
-    Ok(swap_chain.cast()?)
+    Ok(unsafe { factory2.CreateSwapChainForComposition(device, &desc, None)? })
 }
 
 fn create_swap_chain(
@@ -1411,20 +1410,20 @@ fn create_swap_chain(
         OutputWindow: hwnd,
         Windowed: true.into(),
         SwapEffect: DXGI_SWAP_EFFECT_DISCARD,
-        Flags: DXGI_SWAP_CHAIN_FLAG(0),
+        Flags: 0,
     };
     let mut swap_chain: Option<IDXGISwapChain> = None;
     unsafe {
-        dxgi_factory.CreateSwapChain(device, &desc, &mut swap_chain)?;
+        dxgi_factory.CreateSwapChain(device, &desc, &mut swap_chain).ok()?;
         dxgi_factory.MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER)?;
     }
     swap_chain.context("DXGI did not return a swap chain")
 }
 
 #[inline]
-fn create_resources(
+fn create_resources<T: Interface>(
     devices: &DirectXRendererDevices,
-    swap_chain: &IDXGISwapChain,
+    swap_chain: &T,
     width: u32,
     height: u32,
 ) -> Result<(
@@ -1462,10 +1461,11 @@ fn create_resources(
 }
 
 #[inline]
-pub(crate) fn create_render_target_and_its_view(
-    swap_chain: &IDXGISwapChain,
+pub(crate) fn create_render_target_and_its_view<T: Interface>(
+    swap_chain: &T,
     device: &ID3D11Device,
 ) -> Result<(ID3D11Texture2D, Option<ID3D11RenderTargetView>)> {
+    let swap_chain: IDXGISwapChain = swap_chain.cast()?;
     let render_target: ID3D11Texture2D = unsafe { swap_chain.GetBuffer(0) }?;
     let mut render_target_view = None;
     unsafe { device.CreateRenderTargetView(&render_target, None, Some(&mut render_target_view))? };
