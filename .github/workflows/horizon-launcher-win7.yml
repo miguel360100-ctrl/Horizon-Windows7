@@ -11,6 +11,7 @@ on:
       - "gpui-fast-0.1.13/**"
       - ".github/workflows/horizon-launcher-win7.yml"
       - "tools/patch-win7-import.py"
+      - "tools/patch-win7-launcher-graphics.py"
 
 permissions:
   contents: read
@@ -88,7 +89,9 @@ jobs:
         run: |
           python win7-port/tools/patch-win7-import.py horizon/launcher/src/build_import.rs
           if ($LASTEXITCODE -ne 0) { throw "Could not patch the original Horizon build import flow" }
-          Write-Host "The original import UI now installs all Win7 executables from one package."
+          python win7-port/tools/patch-win7-launcher-graphics.py horizon/launcher/src/backend.rs horizon/launcher/src/main.rs
+          if ($LASTEXITCODE -ne 0) { throw "Could not patch the Win7 graphics recovery path" }
+          Write-Host "The original import UI installs complete Win7 packages; Vulkan crash recovery falls back to OpenGL."
 
       # Keep the requested distribution filename while preserving the original setup
       # detection and wizard: only the internal executable-name check is extended.
