@@ -75,12 +75,12 @@ jobs:
       - name: Audit static imports against Windows 7
         shell: pwsh
         run: |
-          $vswhere = '${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe'
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
           if (-not (Test-Path $vswhere)) { throw "vswhere.exe was not found" }
           $vs = & $vswhere -latest -property installationPath
           if (-not $vs) { throw "Visual Studio installation was not found" }
           $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC" -Filter dumpbin.exe -Recurse |
-            Where-Object { $_.FullName -match '\\Hostx64\\x64\\dumpbin.exe |
+            Where-Object { $_.FullName.EndsWith('\Hostx64\x64\dumpbin.exe', [StringComparison]::OrdinalIgnoreCase) } |
             Select-Object -First 1
           if (-not $dumpbin) { throw "dumpbin.exe was not found" }
           $imports = (& $dumpbin.FullName /nologo /imports "horizon-launcher-setup.exe" | Out-String)
