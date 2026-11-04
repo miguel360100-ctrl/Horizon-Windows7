@@ -77,6 +77,18 @@ jobs:
           Set-Content -Path $backend -Value $backendText -NoNewline
           Write-Host "Launcher uses patched GPUI; self-updates are safely disabled for the Win7 build to prevent replacement by the upstream Win10+ binary."
 
+      - name: Set up Python for the focused importer patch
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Add complete Windows 7 build import support
+        shell: pwsh
+        run: |
+          python win7-port/tools/patch-win7-import.py horizon/launcher/src/build_import.rs
+          if ($LASTEXITCODE -ne 0) { throw "Could not patch the original Horizon build import flow" }
+          Write-Host "The original import UI now installs all Win7 executables from one package."
+
       # Keep the requested distribution filename while preserving the original setup
       # detection and wizard: only the internal executable-name check is extended.
       - name: Recognize the Windows 7 setup executable name
@@ -95,6 +107,12 @@ jobs:
         shell: pwsh
         run: |
           cargo +nightly check --manifest-path horizon/launcher/Cargo.toml --features windows7-compat --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
+
+      - name: Test complete Windows 7 package import
+        shell: pwsh
+        run: |
+          cargo +nightly test --locked --manifest-path horizon/launcher/Cargo.toml --features windows7-compat --bin horizon-launcher build_import::tests::a_windows_binary_archive_imports_its_helpers_and_declared_base
+          if ($LASTEXITCODE -ne 0) { throw "The Windows 7 companion-tool import test failed" }
 
       # GPUI's older windows-rs bindings link windows.0.48.5.lib. The launcher
       # lockfile already supplies newer Windows import libraries, so provide this
