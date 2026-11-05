@@ -35,9 +35,31 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: horizon-rust/horizon
-          ref: 2e540fe373ce1e453572ada2343a56e1a9544e04
+          ref: d4540fa520530b5d0f58021e6765410cc5b14d66
           path: horizon
 
+      - name: Verify the original Horizon UI snapshot
+        shell: pwsh
+        run: |
+          $expected = @{
+            "launcher/Cargo.toml" = "227b93e11533082cade936c3db0099bf65334b58"
+            "launcher/src/main.rs" = "9a82872a35cf1232d77d690364781a18bed08b33"
+            "launcher/src/glass_home_tabs.rs" = "f9705ee01a873288f41cd3ce50aa64d9b4761ec2"
+            "launcher/src/glass_ui.rs" = "4d5816498330ea940744779c4250afbad8cc974d"
+            "launcher/src/home_tabs.rs" = "e716fa69e9c440546c2919fd17bc259da1dcc6e6"
+            "launcher/src/home.rs" = "6812b3b5a6f3aa76eb4a75d8f6f4e31c3e522b5d"
+            "launcher/src/instances_page.rs" = "b4ef2c69285687c5ba5dd40f08e455b0cbe32d78"
+            "launcher/src/backend.rs" = "033750209092de07802512c30c437022a3bfbce2"
+            "launcher/src/build_import.rs" = "8cef7121679b9ca6be66c02bfc89dd945b3755dd"
+            "launcher/src/installer.rs" = "b48f528aed3215f740e504ae85862d48b9270373"
+          }
+          foreach ($path in $expected.Keys) {
+            $actual = (git -C horizon rev-parse "HEAD:$path").Trim()
+            if ($actual -ne $expected[$path]) {
+              throw "The Horizon source file does not match the supplied original ZIP: $path (expected $($expected[$path]), got $actual)"
+            }
+          }
+          Write-Host "Exact original Horizon Launcher source verified. UI modules, glass tabs and layout match the supplied ZIP."
       - name: Check out the patched GPUI backend
         uses: actions/checkout@v4
         with:
