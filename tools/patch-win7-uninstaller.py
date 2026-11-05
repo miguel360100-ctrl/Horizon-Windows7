@@ -5,7 +5,7 @@ source = Path(sys.argv[1])
 text = source.read_text(encoding="utf-8")
 
 old = '''    // The running file can be renamed but not deleted: it steps out of the folder into %TEMP%
-    // (the same volume), and the next setup or uninstall clears it (`[`clean_temp`]`).
+    // (the same volume), and the next setup or uninstall clears it ([`clean_temp`]).
     if own.starts_with(&dir) {
         let aside = std::env::temp_dir().join(format!("{ASIDE_PREFIX}{}.exe", std::process::id()));
         if let Err(e) = fs::rename(&own, &aside) {
