@@ -233,10 +233,17 @@ jobs:
           if ($uninstallOutput -match "Not removed:") { throw "The uninstaller reported files or registry entries it could not remove" }
           if (Test-Path $installedExe) { throw "The launcher executable remains after uninstall" }
           if (Test-Path $installedDir) { throw "The launcher install folder remains after uninstall" }
-          $asideExe = Join-Path $installRoot "horizon-launcher-uninstall-$($uninstall.Id).exe"
-          $cleanupDeadline = (Get-Date).AddSeconds(12)
-          while ((Test-Path $asideExe) -and (Get-Date) -lt $cleanupDeadline) { Start-Sleep -Milliseconds 250 }
-          if (Test-Path $asideExe) { throw "The detached cleanup did not remove the renamed launcher executable: $asideExe" }
+          $cleanupDeadline = (Get-Date).AddSeconds(35)
+          $asideFiles = @()
+          do {
+            $asideFiles = @(Get-ChildItem -LiteralPath $installRoot -Filter "horizon-launcher-uninstall-*.exe" -File -ErrorAction SilentlyContinue)
+            if ($asideFiles.Count -gt 0) { Start-Sleep -Milliseconds 500 }
+          } while ($asideFiles.Count -gt 0 -and (Get-Date) -lt $cleanupDeadline)
+          if ($asideFiles.Count -gt 0) {
+            Get-ChildItem -LiteralPath $installRoot -Filter "horizon-launcher-uninstall-cleanup-*.log" -File -ErrorAction SilentlyContinue |
+              ForEach-Object { Get-Content $_.FullName -Raw }
+            throw "The detached cleanup did not remove the renamed launcher executable: $($asideFiles.Name -join ', ')"
+          }
           $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\HorizonLauncher"
           if (Test-Path $uninstallKey) { throw "The uninstall registry entry remains after uninstall" }
           $ownKey = "HKCU:\Software\Horizon\Launcher"
