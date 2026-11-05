@@ -12,6 +12,7 @@ on:
       - ".github/workflows/horizon-launcher-win7.yml"
       - "tools/patch-win7-import.py"
       - "tools/patch-win7-launcher-graphics.py"
+      - "tools/patch-win7-uninstaller.py"
 
 permissions:
   contents: read
@@ -92,21 +93,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Could not patch the original Horizon build import flow" }
           python win7-port/tools/patch-win7-launcher-graphics.py horizon/launcher/src/backend.rs horizon/launcher/src/main.rs
           if ($LASTEXITCODE -ne 0) { throw "Could not patch the Win7 graphics recovery path" }
-          $installer = "horizon/launcher/src/installer.rs"
-          $installerText = Get-Content $installer -Raw
-          $oldInstalledCheck = "if own.starts_with(&dir) {"
-          $newInstalledCheck = @'
-          let own_parent = own.parent().unwrap_or_else(|| Path::new(""));
-          let own_is_installed = match (own_parent.canonicalize(), dir.canonicalize()) {
-              (Ok(own_parent), Ok(install_dir)) => same_path(&own_parent, &install_dir),
-              _ => same_path(own_parent, &dir),
-          };
-          if own_is_installed {
-          '@
-          if (-not $installerText.Contains($oldInstalledCheck)) { throw "Installer self-removal path check was not found" }
-          $installerText = $installerText.Replace($oldInstalledCheck, $newInstalledCheck.Trim())
-          Set-Content -Path $installer -Value $installerText -NoNewline
-          Write-Host "The uninstaller now compares canonical Windows paths before moving its running executable aside."
+          python win7-port/tools/patch-win7-uninstaller.py horizon/launcher/src/installer.rs
+          if ($LASTEXITCODE -ne 0) { throw "Could not make the Windows 7 uninstaller safe across volumes" }
           Write-Host "The original import UI installs complete Win7 packages; Vulkan crash recovery falls back to OpenGL."
 
       # Keep the requested distribution filename while preserving the original setup
@@ -245,6 +233,10 @@ jobs:
           if ($uninstallOutput -match "Not removed:") { throw "The uninstaller reported files or registry entries it could not remove" }
           if (Test-Path $installedExe) { throw "The launcher executable remains after uninstall" }
           if (Test-Path $installedDir) { throw "The launcher install folder remains after uninstall" }
+          $asideExe = Join-Path $installRoot "horizon-launcher-uninstall-$($uninstall.Id).exe"
+          $cleanupDeadline = (Get-Date).AddSeconds(12)
+          while ((Test-Path $asideExe) -and (Get-Date) -lt $cleanupDeadline) { Start-Sleep -Milliseconds 250 }
+          if (Test-Path $asideExe) { throw "The detached cleanup did not remove the renamed launcher executable: $asideExe" }
           $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\HorizonLauncher"
           if (Test-Path $uninstallKey) { throw "The uninstall registry entry remains after uninstall" }
           $ownKey = "HKCU:\Software\Horizon\Launcher"
