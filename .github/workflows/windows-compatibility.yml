@@ -45,6 +45,9 @@ jobs:
       - name: Compile GPUI Windows tests (Windows 7 compatibility)
         run: cargo check -p gpui_windows --tests --features windows7-compat
 
+      - name: Run Windows 7 UTF-16 buffer length tests
+        run: cargo test -p gpui_windows --features windows7-compat --lib destination_list::tests -- --nocapture
+
       - name: Compile GPUI Windows backend (modern Windows behavior)
         run: cargo check -p gpui_windows --all-targets
 
