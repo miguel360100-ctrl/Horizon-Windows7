@@ -187,6 +187,10 @@ jobs:
           $imports = (& $dumpbin.FullName /nologo /imports "Horizon-Windows7-Setup.exe" | Out-String)
           $forbidden = @(
             "dcomp.dll",
+            "icuuc.dll",
+            "icuin.dll",
+            "icu.dll",
+            "u_strlen",
             "CreateDXGIFactory2",
             "GetDpiForWindow",
             "GetDpiForMonitor",
