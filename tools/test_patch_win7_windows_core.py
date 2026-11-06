@@ -10,24 +10,24 @@ import unittest
 PATCHER = Path(__file__).with_name("patch-win7-windows-core.py")
 PACKAGE = "windows-core-0.62.2"
 
-FACTORY_BLOCK = """            let mut get_com_factory = || {
-                crate::HRESULT(RoGetActivationFactory(
-                    transmute_copy(&name),
-                    &I::IID as *const _ as _,
-                    &mut factory as *mut _ as *mut _,
-                ))
-            };
-            let mut code = get_com_factory();
+FACTORY_BLOCK = """        let mut get_com_factory = || {
+            crate::HRESULT(RoGetActivationFactory(
+                transmute_copy(&name),
+                &I::IID as *const _ as _,
+                &mut factory as *mut _ as *mut _,
+            ))
+        };
+        let mut code = get_com_factory();
 
-            // If RoGetActivationFactory fails because combase hasn't been loaded yet then load combase
-            // automatically so that it "just works" for apartment-agnostic code.
-            if code == CO_E_NOTINITIALIZED {
-                let mut cookie = core::ptr::null_mut();
-                CoIncrementMTAUsage(&mut cookie);
+        // If RoGetActivationFactory fails because combase hasn't been loaded yet then load combase
+        // automatically so that it "just works" for apartment-agnostic code.
+        if code == CO_E_NOTINITIALIZED {
+            let mut cookie = core::ptr::null_mut();
+            CoIncrementMTAUsage(&mut cookie);
 
-                // Now try a second time to get the activation factory via the OS.
-                code = get_com_factory();
-            }"""
+            // Now try a second time to get the activation factory via the OS.
+            code = get_com_factory();
+        }"""
 
 class WindowsCorePatchTests(unittest.TestCase):
     def make_fake_cargo_home(self, root: Path, *, include_free: bool = True) -> Path:
