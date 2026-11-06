@@ -27,21 +27,31 @@ if not source_dirs:
 
 def patch_link(path: Path, function: str) -> None:
     content = path.read_text(encoding="utf-8")
-    # Match the exact link! declaration by function name, independent of indentation
-    # or whether this windows-core release spells the macro windows_link/windows_core.
-    pattern = rf'(?m)^([ \t]*(?:windows_link|windows_core)::link!\()"combase\.dll"(?=[^\n]*\bfn\s+{re.escape(function)}\b)'
-    updated, changed = re.subn(pattern, r'\1"ole32.dll"', content)
-    if changed == 1:
-        path.write_text(updated, encoding="utf-8", newline="\n")
+    lines = content.splitlines(keepends=True)
+    target = [
+        i for i, line in enumerate(lines)
+        if "::link!(" in line
+        and '"combase.dll"' in line
+        and re.search(rf"\bfn\s+{re.escape(function)}\b", line)
+    ]
+    if len(target) == 1:
+        i = target[0]
+        lines[i] = lines[i].replace('"combase.dll"', '"ole32.dll"', 1)
+        path.write_text("".join(lines), encoding="utf-8", newline="\n")
         print(f"{function}: combase.dll -> ole32.dll")
-    elif changed == 0:
-        already = rf'(?m)^[ \t]*(?:windows_link|windows_core)::link!\()"ole32\.dll"(?=[^\n]*\bfn\s+{re.escape(function)}\b)'
-        if len(re.findall(already, content)) == 1:
+    elif len(target) == 0:
+        already = [
+            line for line in lines
+            if "::link!(" in line
+            and '"ole32.dll"' in line
+            and re.search(rf"\bfn\s+{re.escape(function)}\b", line)
+        ]
+        if len(already) == 1:
             print(f"{function}: already linked to ole32.dll")
         else:
             raise SystemExit(f"Expected exactly one COM binding for {function} in {path}; refusing unexpected source.")
     else:
-        raise SystemExit(f"Found {changed} COM bindings for {function} in {path}; refusing ambiguous source.")
+        raise SystemExit(f"Found {len(target)} COM bindings for {function} in {path}; refusing ambiguous source.")
 
 def remove_import(path: Path, function: str) -> None:
     content = path.read_text(encoding="utf-8")
