@@ -253,6 +253,15 @@ jobs:
           )
           $found = @($forbidden | Where-Object { $imports -match [regex]::Escape($_) })
           if ($found.Count -gt 0) {
+            $lines = $imports -split "`r?`n"
+            for ($i = 0; $i -lt $lines.Length; $i++) {
+              if ($lines[$i] -match "combase\\.dll") {
+                $start = [Math]::Max(0, $i - 2)
+                $end = [Math]::Min($lines.Length - 1, $i + 12)
+                Write-Host "Import table context for combase.dll:"
+                $lines[$start..$end] | ForEach-Object { Write-Host $_ }
+              }
+            }
             throw "Windows 7-incompatible static imports found: $($found -join ', ')"
           }
           Write-Host "Static import audit passed for the Windows 7 launcher."
