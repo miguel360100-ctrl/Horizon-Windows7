@@ -132,8 +132,8 @@ def patch_factory_cache(path: Path) -> None:
     name: *mut c_void,
     iid: *const c_void,
     factory: *mut *mut c_void,
-) -> crate::HRESULT;
-type CoIncrementMTAUsage = extern "system" fn(cookie: *mut *mut c_void) -> crate::HRESULT;
+) -> i32;
+type CoIncrementMTAUsage = extern "system" fn(cookie: *mut *mut c_void) -> i32;
 
 """
     aliases_present = (
