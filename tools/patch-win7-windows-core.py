@@ -77,6 +77,10 @@ def patch_factory_cache(path: Path) -> None:
         // Now try a second time to get the activation factory via the OS.
         code = get_com_factory();
     }"""
+    # The closure is nested inside the unsafe factory-loading block in the
+    # published 0.62.2 source, so its indentation is four spaces deeper than
+    # the compact regression fixture above.
+    old = "\n".join(("    " + line if line else line) for line in old.split("\n"))
     new = """            let mut get_com_factory = || {
                 // WinRT activation is unavailable on Windows 7. Resolve the API
                 // dynamically so the binary has no static WinRT API-set import.
