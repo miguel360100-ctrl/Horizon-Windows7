@@ -149,6 +149,33 @@ type CoIncrementMTAUsage = extern "system" fn(cookie: *mut *mut c_void) -> i32;
         content = content[:position] + aliases + content[position:]
     path.write_text(content, encoding="utf-8", newline="\n")
 
+def patch_windows_sys_task_mem_free() -> None:
+    # windows-sys 0.61+ independently moved this legacy Win32 API to
+    # combase.dll. Windows 7 exports the same API from ole32.dll.
+    packages = sorted((registry / "src").glob("*/windows-sys-*"))
+    patched = 0
+    for package in packages:
+        if not (package / "Cargo.toml").is_file():
+            continue
+        for path in sorted((package / "src").rglob("*.rs")):
+            lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+            targets = [
+                i for i, line in enumerate(lines)
+                if "::link!(" in line and '"combase.dll"' in line
+                and re.search(r"\\bfn\\s+CoTaskMemFree\\b", line)
+            ]
+            if len(targets) > 1:
+                raise SystemExit(f"Found ambiguous CoTaskMemFree bindings in {path}")
+            if targets:
+                i = targets[0]
+                lines[i] = lines[i].replace('"combase.dll"', '"ole32.dll"', 1)
+                path.write_text("".join(lines), encoding="utf-8", newline="\\n")
+                patched += 1
+                print(f"{package.name}/{path.name}: CoTaskMemFree combase.dll -> ole32.dll")
+    if patched == 0:
+        raise SystemExit("Could not find the expected windows-sys CoTaskMemFree combase.dll binding.")
+    print(f"Patched {patched} windows-sys CoTaskMemFree binding(s) for Windows 7.")
+
 for package_dir in source_dirs:
     if not (package_dir / "Cargo.toml").is_file():
         raise SystemExit(f"Missing Cargo.toml under {package_dir}; refusing unknown crate.")
@@ -169,3 +196,5 @@ for package_dir in source_dirs:
     patch_factory_cache(factory_cache)
 
 print(f"Verified targeted Windows 7 COM/WinRT compatibility patch in {PACKAGE}.")
+
+patch_windows_sys_task_mem_free()
