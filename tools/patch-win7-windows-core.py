@@ -56,9 +56,20 @@ for package_dir in source_dirs:
     patch_link(bindings, "CoTaskMemFree")
     patch_link(marshaler, "CoCreateFreeThreadedMarshaler")
 
-    # CoIncrementMTAUsage is intentionally NOT redirected: it is not a Windows 7 API.
+    # This modern API is not available on Windows 7. Its declaration is unused by
+    # windows-core itself, but it shares the generated bindings object with the
+    # legacy COM functions above; leaving it there pulls combase.dll into the EXE.
+    # Remove only this exact generated declaration, never redirect it to ole32.dll.
+    import re
     remaining = bindings.read_text(encoding="utf-8")
-    if 'windows_link::link!("combase.dll" "system" fn CoIncrementMTAUsage' not in remaining:
-        raise SystemExit("The modern CoIncrementMTAUsage import was unexpectedly changed or removed.")
+    pattern = r'^windows_link::link!\("combase\.dll"\s+"system"\s+fn CoIncrementMTAUsage\([^\n]*\);\s*\n'
+    remaining, removed = re.subn(pattern, "", remaining, flags=re.MULTILINE)
+    if removed not in (0, 1):
+        raise SystemExit("Expected at most one CoIncrementMTAUsage declaration; refusing to patch an unexpected source.")
+    if removed:
+        bindings.write_text(remaining, encoding="utf-8", newline="\\n")
+        print("CoIncrementMTAUsage: removed unused Windows 8+ static import")
+    elif "CoIncrementMTAUsage" in remaining:
+        raise SystemExit("Found an unexpected CoIncrementMTAUsage source declaration; refusing to patch.")
 
 print(f"Verified targeted Windows 7 COM import patch in {PACKAGE}.")
