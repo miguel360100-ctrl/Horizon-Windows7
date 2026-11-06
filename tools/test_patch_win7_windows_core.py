@@ -52,7 +52,7 @@ class WindowsCorePatchTests(unittest.TestCase):
         )
         factory_cache.write_text(
             "use super::*;\n" + FACTORY_BLOCK + "\n"
-            + "    type DllGetActivationFactory = extern \"system\" fn(name: *mut c_void, factory: *mut *mut c_void) -> crate::HRESULT;\n",
+            + "    type DllGetActivationFactory =\n        extern \"system\" fn(name: *mut c_void, factory: *mut *mut c_void) -> crate::HRESULT;\n",
             encoding="utf-8",
         )
         return cargo_home
