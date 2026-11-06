@@ -10,6 +10,7 @@ on:
     paths:
       - ".github/workflows/horizon-game-win7.yml"
       - "tools/patch-win7-game-graphics.py"
+      - "tools/patch-win7-windows-core.py"
 
 permissions:
   contents: read
@@ -57,6 +58,15 @@ jobs:
           python ../win7-port/tools/patch-win7-game-graphics.py .
           if ($LASTEXITCODE -ne 0) { throw "Could not patch the Windows 7 graphics backends" }
           Write-Host "Applied Windows 7 graphics and legacy SAPI compatibility patches."
+
+      - name: Patch Windows COM imports for the Windows 7 system DLL
+        working-directory: horizon
+        shell: pwsh
+        run: |
+          cargo +nightly fetch --manifest-path Cargo.toml
+          if ($LASTEXITCODE -ne 0) { throw "Could not fetch the locked Windows game dependencies" }
+          python ../win7-port/tools/patch-win7-windows-core.py
+          if ($LASTEXITCODE -ne 0) { throw "Could not redirect legacy COM imports to ole32.dll for Windows 7" }
 
       - name: Check the original native game client for Windows 7
         working-directory: horizon
@@ -152,7 +162,7 @@ jobs:
             Where-Object { $_.FullName.EndsWith('\Hostx64\x64\dumpbin.exe', [StringComparison]::OrdinalIgnoreCase) } |
             Select-Object -First 1
           if (-not $dumpbin) { throw "dumpbin.exe was not found" }
-          $forbidden = @("dcomp.dll", "icuuc.dll", "icuin.dll", "icu.dll", "u_strlen", "d3d12.dll", "dxcore.dll", "CreateDXGIFactory2", "GetDpiForWindow", "GetDpiForMonitor", "GetSystemMetricsForDpi", "GetPointerType", "GetDpiForSystem", "GetThreadDpiAwarenessContext", "SetThreadDpiAwarenessContext", "GetWindowDpiAwarenessContext", "SetProcessDpiAwarenessContext", "GetCurrentPackageFullName", "GetCurrentPackageFamilyName", "SetThreadDescription", "GetThreadDescription", "GetSystemTimePreciseAsFileTime", "CreateFile2", "RoGetActivationFactory", "RoOriginateErrorW", "RoInitialize", "WindowsCreateString", "WaitOnAddress", "WakeByAddressAll", "WakeByAddressSingle", "ProcessPrng", "bcryptprimitives.dll", "api-ms-win-core-path-l1-1-0.dll", "api-ms-win-core-winrt-l1-1-0.dll", "api-ms-win-appmodel-runtime-l1-1-0.dll", "api-ms-win-core-synch-l1-2-0.dll", "api-ms-win-shcore-scaling-l1-1-1.dll")
+          $forbidden = @("combase.dll", "CoIncrementMTAUsage", "dcomp.dll", "icuuc.dll", "icuin.dll", "icu.dll", "u_strlen", "d3d12.dll", "dxcore.dll", "CreateDXGIFactory2", "GetDpiForWindow", "GetDpiForMonitor", "GetSystemMetricsForDpi", "GetPointerType", "GetDpiForSystem", "GetThreadDpiAwarenessContext", "SetThreadDpiAwarenessContext", "GetWindowDpiAwarenessContext", "SetProcessDpiAwarenessContext", "GetCurrentPackageFullName", "GetCurrentPackageFamilyName", "SetThreadDescription", "GetThreadDescription", "GetSystemTimePreciseAsFileTime", "CreateFile2", "RoGetActivationFactory", "RoOriginateErrorW", "RoInitialize", "WindowsCreateString", "WaitOnAddress", "WakeByAddressAll", "WakeByAddressSingle", "ProcessPrng", "bcryptprimitives.dll", "api-ms-win-core-path-l1-1-0.dll", "api-ms-win-core-winrt-l1-1-0.dll", "api-ms-win-appmodel-runtime-l1-1-0.dll", "api-ms-win-core-synch-l1-2-0.dll", "api-ms-win-shcore-scaling-l1-1-1.dll")
           $binDir = "target/x86_64-win7-windows-msvc/release"
           foreach ($name in @("horizon-client.exe", "horizon-ctl.exe", "horizon-prepare.exe", "horizon-server.exe")) {
             $binary = Join-Path $binDir $name
