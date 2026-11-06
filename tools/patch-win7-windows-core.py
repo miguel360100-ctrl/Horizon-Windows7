@@ -154,6 +154,7 @@ def patch_windows_sys_task_mem_free() -> None:
     # combase.dll. Windows 7 exports the same API from ole32.dll.
     packages = sorted((registry / "src").glob("*/windows-sys-*"))
     patched = 0
+    already = 0
     for package in packages:
         if not (package / "Cargo.toml").is_file():
             continue
@@ -172,9 +173,9 @@ def patch_windows_sys_task_mem_free() -> None:
                 path.write_text("".join(lines), encoding="utf-8", newline="\n")
                 patched += 1
                 print(f"{package.name}/{path.name}: CoTaskMemFree combase.dll -> ole32.dll")
-    if patched == 0:
-        raise SystemExit("Could not find the expected windows-sys CoTaskMemFree combase.dll binding.")
-    print(f"Patched {patched} windows-sys CoTaskMemFree binding(s) for Windows 7.")
+    if patched + already == 0:
+        raise SystemExit("Could not find the expected windows-sys CoTaskMemFree binding.")
+    print(f"Patched {patched} windows-sys CoTaskMemFree binding(s); {already} already use ole32.dll.")
 
 for package_dir in source_dirs:
     if not (package_dir / "Cargo.toml").is_file():
