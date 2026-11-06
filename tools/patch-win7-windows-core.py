@@ -29,6 +29,9 @@ def patch_link(path: Path, function: str) -> None:
     content = path.read_text(encoding="utf-8")
     old = f'windows_link::link!("combase.dll" "system" fn {function}'
     new = f'windows_link::link!("ole32.dll" "system" fn {function}'
+    # The upstream function is nested four spaces deeper than the compact fixture.
+    # Match its real eight-space indentation while keeping the replacement body unchanged.
+    old = "\n".join(("    " + line if line else line) for line in old.split("\n"))
     if content.count(old) == 1:
         path.write_text(content.replace(old, new, 1), encoding="utf-8", newline="\n")
         print(f"{function}: combase.dll -> ole32.dll")
