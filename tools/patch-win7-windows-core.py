@@ -127,7 +127,11 @@ def patch_factory_cache(path: Path) -> None:
 
 """
     marker = re.compile(r"(?m)^([ \t]*)type DllGetActivationFactory =\n")
-    if aliases.strip() not in content:
+    aliases_present = (
+        re.search(r"(?m)^\\s*type RoGetActivationFactory\\s*=", content)
+        and re.search(r"(?m)^\\s*type CoIncrementMTAUsage\\s*=", content)
+    )
+    if not aliases_present:
         matches = list(marker.finditer(content))
         if len(matches) != 1:
             raise SystemExit("Could not locate factory_cache function-pointer aliases.")
