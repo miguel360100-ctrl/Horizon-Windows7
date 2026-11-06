@@ -112,7 +112,7 @@ jobs:
       - name: Patch Windows COM imports for the Windows 7 system DLL
         shell: pwsh
         run: |
-          cargo +nightly fetch --manifest-path horizon/launcher/Cargo.toml --locked
+          cargo +nightly fetch --manifest-path horizon/launcher/Cargo.toml
           if ($LASTEXITCODE -ne 0) { throw "Could not fetch the locked Windows dependencies" }
           python win7-port/tools/patch-win7-windows-core.py
           if ($LASTEXITCODE -ne 0) { throw "Could not redirect the Windows 8+ combase.dll references to the Windows 7 ole32.dll exports" }
