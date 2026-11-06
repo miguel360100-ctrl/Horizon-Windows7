@@ -118,26 +118,23 @@ def patch_factory_cache(path: Path) -> None:
         print("factory_cache.rs: dynamic WinRT/MTA resolution already applied")
     else:
         raise SystemExit(f"Expected exact windows-core {VERSION} factory_cache block in {path}; refusing unexpected source.")
-    aliases = """    type RoGetActivationFactory = extern "system" fn(
-        name: *mut c_void,
-        iid: *const c_void,
-        factory: *mut *mut c_void,
-    ) -> crate::HRESULT;
-    type CoIncrementMTAUsage = extern "system" fn(cookie: *mut *mut c_void) -> crate::HRESULT;
+    aliases = """type RoGetActivationFactory = extern "system" fn(
+    name: *mut c_void,
+    iid: *const c_void,
+    factory: *mut *mut c_void,
+) -> crate::HRESULT;
+type CoIncrementMTAUsage = extern "system" fn(cookie: *mut *mut c_void) -> crate::HRESULT;
 
 """
-    marker = re.compile(r"(?m)^([ \t]*)type DllGetActivationFactory =\n")
     aliases_present = (
-        re.search(r"(?m)^\\s*type RoGetActivationFactory\\s*=", content)
-        and re.search(r"(?m)^\\s*type CoIncrementMTAUsage\\s*=", content)
+        "type RoGetActivationFactory =" in content
+        and "type CoIncrementMTAUsage =" in content
     )
     if not aliases_present:
-        matches = list(marker.finditer(content))
-        if len(matches) != 1:
-            raise SystemExit("Could not locate factory_cache function-pointer aliases.")
-        indent = matches[0].group(1)
-        alias_text = "\n".join(indent + line if line else line for line in aliases.rstrip("\n").split("\n")) + "\n"
-        content = content[:matches[0].start()] + alias_text + content[matches[0].start():]
+        marker = "use super::*;\n"
+        if content.count(marker) != 1:
+            raise SystemExit("Could not locate factory_cache module imports for function-pointer aliases.")
+        content = content.replace(marker, marker + aliases, 1)
     path.write_text(content, encoding="utf-8", newline="\n")
 
 for package_dir in source_dirs:
