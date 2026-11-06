@@ -82,6 +82,20 @@ class WindowsCorePatchTests(unittest.TestCase):
             second = self.run_patcher(cargo_home)
             self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
 
+    def test_patches_unindented_windows_core_macro_spelling(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            cargo_home = self.make_fake_cargo_home(Path(temporary))
+            package = cargo_home / "registry" / "src" / "test-registry" / PACKAGE
+            bindings = package / "src" / "imp" / "bindings.rs"
+            source = bindings.read_text(encoding="utf-8")
+            source = source.replace("windows_link::link!", "windows_core::link!")
+            bindings.write_text(source, encoding="utf-8")
+            result = self.run_patcher(cargo_home)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            patched = bindings.read_text(encoding="utf-8")
+            self.assertIn('windows_core::link!("ole32.dll" "system" fn CoTaskMemAlloc', patched)
+            self.assertNotIn('windows_core::link!("combase.dll" "system" fn CoTaskMemAlloc', patched)
+
     def test_refuses_unexpected_windows_core_source_shape(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             cargo_home = self.make_fake_cargo_home(Path(temporary), include_free=False)
