@@ -8,6 +8,7 @@ use gpui_util::ResultExt;
 use windows::{
     Win32::{
         Foundation::HWND,
+        System::LibraryLoader::{GetProcAddress, LoadLibraryA},
         Graphics::{
             Direct3D::*,
             Direct3D11::*,
@@ -16,7 +17,7 @@ use windows::{
             Dxgi::{Common::*, *},
         },
     },
-    core::{HSTRING, Interface},
+    core::{HSTRING, Interface, PCSTR},
 };
 
 use crate::directx_renderer::shader_resources::{RawShaderBytes, ShaderModule, ShaderTarget};
@@ -63,7 +64,7 @@ pub(crate) struct DirectXRenderer {
 #[derive(Clone)]
 pub(crate) struct DirectXRendererDevices {
     pub(crate) adapter: IDXGIAdapter1,
-    pub(crate) dxgi_factory: IDXGIFactory6,
+    pub(crate) dxgi_factory: IDXGIFactory1,
     pub(crate) device: ID3D11Device,
     pub(crate) device_context: ID3D11DeviceContext,
     dxgi_device: Option<IDXGIDevice>,
@@ -72,7 +73,7 @@ pub(crate) struct DirectXRendererDevices {
 
 pub(crate) struct DirectXResources {
     // Direct3D rendering objects
-    swap_chain: IDXGISwapChain1,
+    swap_chain: IDXGISwapChain,
     render_target: Option<ID3D11Texture2D>,
     pub(crate) render_target_view: Option<ID3D11RenderTargetView>,
 
@@ -167,23 +168,40 @@ impl DirectXRenderer {
             .context("Creating DirectX devices")?;
         let atlas = Arc::new(DirectXAtlas::new(&devices.device, &devices.device_context));
 
-        let resources = DirectXResources::new(&devices, 1, 1, hwnd, disable_direct_composition)
-            .context("Creating DirectX resources")?;
+        // DirectComposition is not present on Windows 7. Probe it before
+        // creating resources so that a failed COM activation selects the
+        // legacy HWND swap-chain path instead of aborting window creation.
+        let direct_composition = if disable_direct_composition {
+            None
+        } else {
+            match DirectComposition::new(devices.dxgi_device.as_ref().unwrap(), hwnd) {
+                Ok(composition) => Some(composition),
+                Err(error) => {
+                    log::warn!(
+                        "DirectComposition is unavailable; falling back to a legacy HWND swap chain: {error:#}"
+                    );
+                    None
+                }
+            }
+        };
+        let use_legacy_swap_chain = direct_composition.is_none();
+        let resources = DirectXResources::new(
+            &devices,
+            1,
+            1,
+            hwnd,
+            use_legacy_swap_chain,
+        )
+        .context("Creating DirectX resources")?;
         let globals = DirectXGlobalElements::new(&devices.device)
             .context("Creating DirectX global elements")?;
         let pipelines = DirectXRenderPipelines::new(&devices.device)
             .context("Creating DirectX render pipelines")?;
-
-        let direct_composition = if disable_direct_composition {
-            None
-        } else {
-            let composition = DirectComposition::new(devices.dxgi_device.as_ref().unwrap(), hwnd)
-                .context("Creating DirectComposition")?;
+        if let Some(composition) = &direct_composition {
             composition
-                .set_swap_chain(&resources.swap_chain)
+                 .set_swap_chain(&resources.swap_chain.cast::<IDXGISwapChain1>()?)
                 .context("Setting swap chain for DirectComposition")?;
-            Some(composition)
-        };
+        }
 
         Ok(DirectXRenderer {
             hwnd,
@@ -317,7 +335,7 @@ impl DirectXRenderer {
         } else {
             let composition =
                 DirectComposition::new(devices.dxgi_device.as_ref().unwrap(), self.hwnd)?;
-            composition.set_swap_chain(&resources.swap_chain)?;
+            composition.set_swap_chain(&resources.swap_chain.cast::<IDXGISwapChain1>()?)?;
             Some(composition)
         };
 
@@ -871,14 +889,33 @@ impl DirectXRenderer {
     pub(crate) fn get_font_info() -> &'static FontInfo {
         static CACHED_FONT_INFO: OnceLock<FontInfo> = OnceLock::new();
         CACHED_FONT_INFO.get_or_init(|| unsafe {
-            let factory: IDWriteFactory5 = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED).unwrap();
-            let render_params: IDWriteRenderingParams1 =
-                factory.CreateRenderingParams().unwrap().cast().unwrap();
-            FontInfo {
-                gamma_ratios: gpui::get_gamma_correction_ratios(render_params.GetGamma()),
-                grayscale_enhanced_contrast: render_params.GetGrayscaleEnhancedContrast(),
-                subpixel_enhanced_contrast: render_params.GetEnhancedContrast(),
-                is_bgr: render_params.GetPixelGeometry() == DWRITE_PIXEL_GEOMETRY_BGR,
+            #[cfg(not(feature = "windows7-compat"))]
+            {
+                let factory: IDWriteFactory5 =
+                    DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED).unwrap();
+                let render_params: IDWriteRenderingParams1 =
+                    factory.CreateRenderingParams().unwrap().cast().unwrap();
+                FontInfo {
+                    gamma_ratios: gpui::get_gamma_correction_ratios(render_params.GetGamma()),
+                    grayscale_enhanced_contrast: render_params.GetGrayscaleEnhancedContrast(),
+                    subpixel_enhanced_contrast: render_params.GetEnhancedContrast(),
+                    is_bgr: render_params.GetPixelGeometry() == DWRITE_PIXEL_GEOMETRY_BGR,
+                }
+            }
+            #[cfg(feature = "windows7-compat")]
+            {
+                // Windows 7 ships DirectWrite 1.0, but not IDWriteFactory5 or
+                // IDWriteRenderingParams1. Query only the original interfaces.
+                let factory: IDWriteFactory =
+                    DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED).unwrap();
+                let render_params: IDWriteRenderingParams =
+                    factory.CreateRenderingParams().unwrap();
+                FontInfo {
+                    gamma_ratios: gpui::get_gamma_correction_ratios(render_params.GetGamma()),
+                    grayscale_enhanced_contrast: 0.0,
+                    subpixel_enhanced_contrast: render_params.GetEnhancedContrast(),
+                    is_bgr: render_params.GetPixelGeometry() == DWRITE_PIXEL_GEOMETRY_BGR,
+                }
             }
         })
     }
@@ -905,6 +942,7 @@ impl DirectXResources {
                 width,
                 height,
             )?
+            .cast::<IDXGISwapChain>()?
         };
 
         let (
@@ -1310,11 +1348,40 @@ impl Drop for DirectXRenderer {
 
 #[inline]
 fn get_comp_device(dxgi_device: &IDXGIDevice) -> Result<IDCompositionDevice> {
-    Ok(unsafe { DCompositionCreateDevice(dxgi_device)? })
+    // dcomp.dll is absent on Windows 7. Resolve the entry point dynamically
+    // so the process loader never requires that DLL merely to start Horizon.
+    type CreateDeviceFn = unsafe extern "system" fn(
+        *mut std::ffi::c_void,
+        *const windows::core::GUID,
+        *mut *mut std::ffi::c_void,
+    ) -> windows::core::HRESULT;
+
+    let module = unsafe {
+        LoadLibraryA(PCSTR::from_raw(b"dcomp.dll\0".as_ptr()))
+            .context("Loading dcomp.dll")?
+    };
+    let entry = unsafe {
+        GetProcAddress(
+            module,
+            PCSTR::from_raw(b"DCompositionCreateDevice\0".as_ptr()),
+        )
+    }
+    .context("DCompositionCreateDevice is not exported")?;
+    let create_device: CreateDeviceFn = unsafe { std::mem::transmute(entry) };
+    let mut output = std::ptr::null_mut();
+    unsafe {
+        create_device(
+            dxgi_device.as_raw(),
+            &IDCompositionDevice::IID,
+            &mut output,
+        )
+        .ok()?;
+        Ok(Interface::from_raw(output))
+    }
 }
 
 pub(crate) fn create_swap_chain_for_composition(
-    dxgi_factory: &IDXGIFactory6,
+    dxgi_factory: &IDXGIFactory1,
     device: &ID3D11Device,
     width: u32,
     height: u32,
@@ -1336,44 +1403,47 @@ pub(crate) fn create_swap_chain_for_composition(
         AlphaMode: DXGI_ALPHA_MODE_PREMULTIPLIED,
         Flags: 0,
     };
-    Ok(unsafe { dxgi_factory.CreateSwapChainForComposition(device, &desc, None)? })
+    let factory2: IDXGIFactory2 = dxgi_factory.cast()?;
+    Ok(unsafe { factory2.CreateSwapChainForComposition(device, &desc, None)? })
 }
 
 fn create_swap_chain(
-    dxgi_factory: &IDXGIFactory6,
+    dxgi_factory: &IDXGIFactory1,
     device: &ID3D11Device,
     hwnd: HWND,
     width: u32,
     height: u32,
-) -> Result<IDXGISwapChain1> {
+) -> Result<IDXGISwapChain> {
     use windows::Win32::Graphics::Dxgi::DXGI_MWA_NO_ALT_ENTER;
 
-    let desc = DXGI_SWAP_CHAIN_DESC1 {
-        Width: width,
-        Height: height,
-        Format: RENDER_TARGET_FORMAT,
-        Stereo: false.into(),
-        SampleDesc: DXGI_SAMPLE_DESC {
-            Count: 1,
-            Quality: 0,
-        },
+    // DXGI 1.0 swap chains are available on Windows 7. Flip-model HWND swap
+    // chains require a newer DXGI version, so use the legacy discard model here.
+    let mut buffer_desc = DXGI_MODE_DESC::default();
+    buffer_desc.Width = width;
+    buffer_desc.Height = height;
+    buffer_desc.Format = RENDER_TARGET_FORMAT;
+    let desc = DXGI_SWAP_CHAIN_DESC {
+        BufferDesc: buffer_desc,
+        SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
         BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
         BufferCount: BUFFER_COUNT as u32,
-        Scaling: DXGI_SCALING_NONE,
-        SwapEffect: DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL,
-        AlphaMode: DXGI_ALPHA_MODE_IGNORE,
+        OutputWindow: hwnd,
+        Windowed: true.into(),
+        SwapEffect: DXGI_SWAP_EFFECT_DISCARD,
         Flags: 0,
     };
-    let swap_chain =
-        unsafe { dxgi_factory.CreateSwapChainForHwnd(device, hwnd, &desc, None, None) }?;
-    unsafe { dxgi_factory.MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER) }?;
-    Ok(swap_chain)
+    let mut swap_chain: Option<IDXGISwapChain> = None;
+    unsafe {
+        dxgi_factory.CreateSwapChain(device, &desc, &mut swap_chain).ok()?;
+        dxgi_factory.MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER)?;
+    }
+    swap_chain.context("DXGI did not return a swap chain")
 }
 
 #[inline]
-fn create_resources(
+fn create_resources<T: Interface>(
     devices: &DirectXRendererDevices,
-    swap_chain: &IDXGISwapChain1,
+    swap_chain: &T,
     width: u32,
     height: u32,
 ) -> Result<(
@@ -1411,10 +1481,11 @@ fn create_resources(
 }
 
 #[inline]
-pub(crate) fn create_render_target_and_its_view(
-    swap_chain: &IDXGISwapChain1,
+pub(crate) fn create_render_target_and_its_view<T: Interface>(
+    swap_chain: &T,
     device: &ID3D11Device,
 ) -> Result<(ID3D11Texture2D, Option<ID3D11RenderTargetView>)> {
+    let swap_chain: IDXGISwapChain = swap_chain.cast()?;
     let render_target: ID3D11Texture2D = unsafe { swap_chain.GetBuffer(0) }?;
     let mut render_target_view = None;
     unsafe { device.CreateRenderTargetView(&render_target, None, Some(&mut render_target_view))? };
