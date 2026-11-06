@@ -8,11 +8,36 @@ use gpui_util::ResultExt;
 use windows::Win32::{
     Foundation::*,
     Graphics::{DirectManipulation::*, Gdi::*},
-    System::Com::*,
-    UI::{Input::Pointer::*, WindowsAndMessaging::*},
+    System::{Com::*, LibraryLoader::*},
+    UI::WindowsAndMessaging::*,
 };
 
 use crate::*;
+
+use windows::core::PCSTR;
+
+/// GetPointerType was introduced in Windows 8. Resolve it dynamically so a
+/// touchpad-specific optimization cannot prevent the Windows 7 process loading.
+fn get_pointer_type_compat(
+    pointer_id: u32,
+    pointer_type: *mut POINTER_INPUT_TYPE,
+) -> bool {
+    type GetPointerTypeFn = unsafe extern "system" fn(u32, *mut POINTER_INPUT_TYPE) -> i32;
+
+    unsafe {
+        let Ok(user32) = GetModuleHandleA(PCSTR::from_raw(b"user32.dll\0".as_ptr())) else {
+            return false;
+        };
+        let Some(entry) = GetProcAddress(
+            user32,
+            PCSTR::from_raw(b"GetPointerType\0".as_ptr()),
+        ) else {
+            return false;
+        };
+        let get_pointer_type: GetPointerTypeFn = std::mem::transmute(entry);
+        get_pointer_type(pointer_id, pointer_type) != 0
+    }
+}
 
 /// Default viewport size in pixels. The actual content size doesn't matter
 /// because we're using the viewport only for gesture recognition, not for
@@ -20,10 +45,10 @@ use crate::*;
 const DEFAULT_VIEWPORT_SIZE: i32 = 1000;
 
 pub(crate) struct DirectManipulationHandler {
-    manager: IDirectManipulationManager,
-    pub(crate) update_manager: IDirectManipulationUpdateManager,
-    pub(crate) viewport: IDirectManipulationViewport,
-    _handler_cookie: u32,
+    manager: Option<IDirectManipulationManager>,
+    pub(crate) update_manager: Option<IDirectManipulationUpdateManager>,
+    pub(crate) viewport: Option<IDirectManipulationViewport>,
+    _handler_cookie: Option<u32>,
     window: HWND,
     scale_factor: Rc<Cell<f32>>,
     pending_events: Rc<RefCell<Vec<PlatformInput>>>,
@@ -36,81 +61,96 @@ impl DirectManipulationHandler {
         scale_factor: f32,
         fast_frame_request: Arc<crate::fast::frame_schedule::FrameRequest>,
     ) -> Result<Self> {
-        unsafe {
-            let manager: IDirectManipulationManager =
-                CoCreateInstance(&DirectManipulationManager, None, CLSCTX_INPROC_SERVER)?;
+        let scale_factor = Rc::new(Cell::new(scale_factor));
+        let pending_events = Rc::new(RefCell::new(Vec::new()));
 
-            let update_manager: IDirectManipulationUpdateManager = manager.GetUpdateManager()?;
+        // Direct Manipulation was introduced after Windows 7. It is an optional
+        // input enhancement, so failure to activate its COM class must not
+        // prevent the application window from being created.
+        let direct_manipulation = unsafe {
+            (|| -> Result<_> {
+                let manager: IDirectManipulationManager =
+                    CoCreateInstance(&DirectManipulationManager, None, CLSCTX_INPROC_SERVER)?;
+                let update_manager: IDirectManipulationUpdateManager =
+                    manager.GetUpdateManager()?;
+                let viewport: IDirectManipulationViewport =
+                    manager.CreateViewport(None, window)?;
+                let configuration = DIRECTMANIPULATION_CONFIGURATION_INTERACTION
+                    | DIRECTMANIPULATION_CONFIGURATION_TRANSLATION_X
+                    | DIRECTMANIPULATION_CONFIGURATION_TRANSLATION_Y
+                    | DIRECTMANIPULATION_CONFIGURATION_TRANSLATION_INERTIA
+                    | DIRECTMANIPULATION_CONFIGURATION_RAILS_X
+                    | DIRECTMANIPULATION_CONFIGURATION_RAILS_Y
+                    | DIRECTMANIPULATION_CONFIGURATION_SCALING;
+                viewport.ActivateConfiguration(configuration)?;
+                viewport.SetViewportOptions(
+                    DIRECTMANIPULATION_VIEWPORT_OPTIONS_MANUALUPDATE
+                        | DIRECTMANIPULATION_VIEWPORT_OPTIONS_DISABLEPIXELSNAPPING,
+                )?;
+                let mut rect = RECT {
+                    left: 0,
+                    top: 0,
+                    right: DEFAULT_VIEWPORT_SIZE,
+                    bottom: DEFAULT_VIEWPORT_SIZE,
+                };
+                viewport.SetViewportRect(&mut rect)?;
+                manager.Activate(window)?;
+                viewport.Enable()?;
+                let event_handler: IDirectManipulationViewportEventHandler =
+                    DirectManipulationEventHandler::new(
+                        window,
+                        Rc::clone(&scale_factor),
+                        Rc::clone(&pending_events),
+                        Arc::clone(&fast_frame_request),
+                    )
+                    .into();
+                let handler_cookie = viewport.AddEventHandler(Some(window), &event_handler)?;
+                update_manager.Update(None)?;
+                Ok((manager, update_manager, viewport, handler_cookie))
+            })()
+        };
 
-            let viewport: IDirectManipulationViewport = manager.CreateViewport(None, window)?;
+        let (manager, update_manager, viewport, handler_cookie) = match direct_manipulation {
+            Ok((manager, update_manager, viewport, handler_cookie)) => (
+                Some(manager),
+                Some(update_manager),
+                Some(viewport),
+                Some(handler_cookie),
+            ),
+            Err(error) => {
+                log::info!("Direct Manipulation unavailable; using standard pointer input: {error:#}");
+                (None, None, None, None)
+            }
+        };
 
-            let configuration = DIRECTMANIPULATION_CONFIGURATION_INTERACTION
-                | DIRECTMANIPULATION_CONFIGURATION_TRANSLATION_X
-                | DIRECTMANIPULATION_CONFIGURATION_TRANSLATION_Y
-                | DIRECTMANIPULATION_CONFIGURATION_TRANSLATION_INERTIA
-                | DIRECTMANIPULATION_CONFIGURATION_RAILS_X
-                | DIRECTMANIPULATION_CONFIGURATION_RAILS_Y
-                | DIRECTMANIPULATION_CONFIGURATION_SCALING;
-            viewport.ActivateConfiguration(configuration)?;
-
-            viewport.SetViewportOptions(
-                DIRECTMANIPULATION_VIEWPORT_OPTIONS_MANUALUPDATE
-                    | DIRECTMANIPULATION_VIEWPORT_OPTIONS_DISABLEPIXELSNAPPING,
-            )?;
-
-            let mut rect = RECT {
-                left: 0,
-                top: 0,
-                right: DEFAULT_VIEWPORT_SIZE,
-                bottom: DEFAULT_VIEWPORT_SIZE,
-            };
-            viewport.SetViewportRect(&mut rect)?;
-
-            manager.Activate(window)?;
-            viewport.Enable()?;
-
-            let scale_factor = Rc::new(Cell::new(scale_factor));
-            let pending_events = Rc::new(RefCell::new(Vec::new()));
-
-            let event_handler: IDirectManipulationViewportEventHandler =
-                DirectManipulationEventHandler::new(
-                    window,
-                    Rc::clone(&scale_factor),
-                    Rc::clone(&pending_events),
-                    Arc::clone(&fast_frame_request),
-                )
-                .into();
-
-            let handler_cookie = viewport.AddEventHandler(Some(window), &event_handler)?;
-
-            update_manager.Update(None)?;
-
-            Ok(Self {
-                manager,
-                update_manager,
-                viewport,
-                _handler_cookie: handler_cookie,
-                window,
-                scale_factor,
-                pending_events,
-                fast_manipulation: crate::fast::frame_schedule::ManipulationFrames::new(
-                    fast_frame_request,
-                ),
-            })
-        }
+        Ok(Self {
+            manager,
+            update_manager,
+            viewport,
+            _handler_cookie: handler_cookie,
+            window,
+            scale_factor,
+            pending_events,
+            fast_manipulation: crate::fast::frame_schedule::ManipulationFrames::new(
+                fast_frame_request,
+            ),
+        })
     }
-
     pub fn set_scale_factor(&self, scale_factor: f32) {
         self.scale_factor.set(scale_factor);
     }
 
     pub fn on_pointer_hit_test(&self, wparam: WPARAM) {
+        let Some(viewport) = &self.viewport else {
+            return;
+        };
         unsafe {
             let pointer_id = wparam.loword() as u32;
             let mut pointer_type = POINTER_INPUT_TYPE::default();
-            if GetPointerType(pointer_id, &mut pointer_type).is_ok() && pointer_type == PT_TOUCHPAD
+            if get_pointer_type_compat(pointer_id, &mut pointer_type)
+                && pointer_type == PT_TOUCHPAD
             {
-                self.viewport.SetContact(pointer_id).log_err();
+                viewport.SetContact(pointer_id).log_err();
                 crate::fast::frame_schedule::ManipulationFrames::contact(&self.fast_manipulation);
             }
         }
@@ -128,9 +168,13 @@ impl DirectManipulationHandler {
 impl Drop for DirectManipulationHandler {
     fn drop(&mut self) {
         unsafe {
-            self.viewport.Stop().log_err();
-            self.viewport.Abandon().log_err();
-            self.manager.Deactivate(self.window).log_err();
+            if let Some(viewport) = &self.viewport {
+                viewport.Stop().log_err();
+                viewport.Abandon().log_err();
+            }
+            if let Some(manager) = &self.manager {
+                manager.Deactivate(self.window).log_err();
+            }
         }
     }
 }

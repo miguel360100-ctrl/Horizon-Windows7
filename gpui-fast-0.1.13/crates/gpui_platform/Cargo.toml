@@ -25,6 +25,8 @@ screen-capture = ["gpui/screen-capture", "gpui_macos/screen-capture", "gpui_wind
 runtime_shaders = ["gpui_macos/runtime_shaders", "gpui_ios/runtime_shaders"]
 wayland = ["gpui_linux/wayland"]
 x11 = ["gpui_linux/x11"]
+# Forward the Windows 7 compatibility build option to the native backend.
+windows7-compat = ["gpui_windows/windows7-compat"]
 
 [[bench]]
 name = "atlas_upload"
