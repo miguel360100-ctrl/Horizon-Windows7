@@ -18,8 +18,8 @@ class WindowsCorePatchTests(unittest.TestCase):
         package = cargo_home / "registry" / "src" / "test-registry" / PACKAGE
         bindings = package / "src" / "imp" / "bindings.rs"
         marshaler = package / "src" / "imp" / "marshaler.rs"
-        bindings.parent.mkdir(parents=True)
-        marshaler.parent.mkdir(parents=True)
+        bindings.parent.mkdir(parents=True, exist_ok=True)
+        marshaler.parent.mkdir(parents=True, exist_ok=True)
         (package / "Cargo.toml").write_text('[package]\nname = "windows-core"\n', encoding="utf-8")
 
         imports = [
