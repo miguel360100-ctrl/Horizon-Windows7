@@ -150,9 +150,15 @@ type CoIncrementMTAUsage = extern "system" fn(cookie: *mut *mut c_void) -> i32;
     path.write_text(content, encoding="utf-8", newline="\n")
 
 def patch_windows_sys_task_mem_free() -> None:
-    # windows-sys 0.61+ independently moved this legacy Win32 API to
-    # combase.dll. Windows 7 exports the same API from ole32.dll.
-    packages = sorted((registry / "src").glob("*/windows-sys-*"))
+    # Newer generated Windows bindings across windows-sys and windows crates
+    # may link this legacy Win32 API from combase.dll. Windows 7 exports it
+    # from ole32.dll, so scan registry crates for this exact function only.
+    packages = sorted(
+        package
+        for source_root in (registry / "src").glob("*")
+        for package in source_root.iterdir()
+        if package.is_dir() and (package / "Cargo.toml").is_file()
+    )
     patched = 0
     already = 0
     for package in packages:
