@@ -197,6 +197,7 @@ jobs:
           $forbidden = @(
             "dcomp.dll",
             "combase.dll",
+            "CoIncrementMTAUsage",
             "icuuc.dll",
             "icuin.dll",
             "icu.dll",
