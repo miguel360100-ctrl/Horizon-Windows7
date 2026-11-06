@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import re
 import tarfile
 
 VERSION = "0.62.2"
@@ -11,9 +12,7 @@ source_dirs = sorted((registry / "src").glob(f"*/{PACKAGE}"))
 if not source_dirs:
     archives = sorted((registry / "cache").glob(f"*/{PACKAGE}.crate"))
     if not archives:
-        raise SystemExit(
-            f"{PACKAGE}.crate was not fetched. Run cargo +nightly fetch first."
-        )
+        raise SystemExit(f"{PACKAGE}.crate was not fetched. Run cargo +nightly fetch first.")
     for archive in archives:
         source_root = registry / "src" / archive.parent.name
         source_root.mkdir(parents=True, exist_ok=True)
@@ -36,40 +35,111 @@ def patch_link(path: Path, function: str) -> None:
     elif content.count(new) == 1:
         print(f"{function}: already linked to ole32.dll")
     else:
-        raise SystemExit(
-            f"Expected exactly one COM binding for {function} in {path}; "
-            "refusing to patch an unexpected windows-core version."
-        )
+        raise SystemExit(f"Expected exactly one COM binding for {function} in {path}; refusing unexpected source.")
+
+def remove_import(path: Path, function: str) -> None:
+    content = path.read_text(encoding="utf-8")
+    pattern = rf'^windows_link::link!\("[^"]+"\s+"system"\s+fn {re.escape(function)}\([^\n]*\);\s*\n'
+    updated, removed = re.subn(pattern, "", content, flags=re.MULTILINE)
+    if removed == 1:
+        path.write_text(updated, encoding="utf-8", newline="\n")
+        print(f"{function}: removed unsupported static import")
+    elif removed == 0 and re.search(rf'fn\s+{re.escape(function)}\b', content):
+        raise SystemExit(f"Found unexpected {function} declaration; refusing to patch.")
+    elif removed > 1:
+        raise SystemExit(f"Found multiple {function} declarations; refusing to patch.")
+    else:
+        print(f"{function}: static import already absent")
+
+def patch_factory_cache(path: Path) -> None:
+    content = path.read_text(encoding="utf-8")
+    old = """            let mut get_com_factory = || {
+                crate::HRESULT(RoGetActivationFactory(
+                    transmute_copy(&name),
+                    &I::IID as *const _ as _,
+                    &mut factory as *mut _ as *mut _,
+                ))
+            };
+            let mut code = get_com_factory();
+
+            // If RoGetActivationFactory fails because combase hasn't been loaded yet then load combase
+            // automatically so that it "just works" for apartment-agnostic code.
+            if code == CO_E_NOTINITIALIZED {
+                let mut cookie = core::ptr::null_mut();
+                CoIncrementMTAUsage(&mut cookie);
+
+                // Now try a second time to get the activation factory via the OS.
+                code = get_com_factory();
+            }"""
+    new = """            let mut get_com_factory = || {
+                // WinRT activation is unavailable on Windows 7. Resolve the API
+                // dynamically so the binary has no static WinRT API-set import.
+                let function = delay_load::<RoGetActivationFactory>(
+                    crate::s!("api-ms-win-core-winrt-l1-1-0.dll"),
+                    crate::s!("RoGetActivationFactory"),
+                );
+                match function {
+                    Some(function) => crate::HRESULT(function(
+                        transmute_copy(&name),
+                        &I::IID as *const _ as *const c_void,
+                        &mut factory as *mut _ as *mut _,
+                    )),
+                    None => crate::HRESULT(0x80004001u32 as i32), // E_NOTIMPL
+                }
+            };
+            let mut code = get_com_factory();
+
+            // Keep the modern Windows behavior without a static import: on
+            // Windows 8+, dynamically resolve the MTA helper from ole32.dll.
+            if code == CO_E_NOTINITIALIZED {
+                let mut cookie = core::ptr::null_mut();
+                if let Some(increment) = delay_load::<CoIncrementMTAUsage>(
+                    crate::s!("ole32.dll"),
+                    crate::s!("CoIncrementMTAUsage"),
+                ) {
+                    increment(&mut cookie);
+                    code = get_com_factory();
+                }
+            }"""
+    if content.count(old) == 1:
+        content = content.replace(old, new, 1)
+        print("factory_cache.rs: WinRT and MTA APIs now resolve dynamically")
+    elif content.count("delay_load::<RoGetActivationFactory>") == 1 and "delay_load::<CoIncrementMTAUsage>" in content:
+        print("factory_cache.rs: dynamic WinRT/MTA resolution already applied")
+    else:
+        raise SystemExit(f"Expected exact windows-core {VERSION} factory_cache block in {path}; refusing unexpected source.")
+    aliases = """    type RoGetActivationFactory = extern "system" fn(
+        name: *mut c_void,
+        iid: *const c_void,
+        factory: *mut *mut c_void,
+    ) -> crate::HRESULT;
+    type CoIncrementMTAUsage = extern "system" fn(cookie: *mut *mut c_void) -> crate::HRESULT;
+
+"""
+    marker = "    type DllGetActivationFactory =\n"
+    if aliases.strip() not in content:
+        if content.count(marker) != 1:
+            raise SystemExit("Could not locate factory_cache function-pointer aliases.")
+        content = content.replace(marker, aliases + marker, 1)
+    path.write_text(content, encoding="utf-8", newline="\n")
 
 for package_dir in source_dirs:
-    manifest = package_dir / "Cargo.toml"
-    if not manifest.is_file():
-        raise SystemExit(f"Missing {manifest}; refusing to patch an unknown crate.")
-
+    if not (package_dir / "Cargo.toml").is_file():
+        raise SystemExit(f"Missing Cargo.toml under {package_dir}; refusing unknown crate.")
     bindings = package_dir / "src/imp/bindings.rs"
     marshaler = package_dir / "src/imp/marshaler.rs"
-    if not bindings.is_file() or not marshaler.is_file():
-        raise SystemExit(f"Expected COM binding files are missing under {package_dir}")
+    factory_cache = package_dir / "src/imp/factory_cache.rs"
+    if not all(path.is_file() for path in (bindings, marshaler, factory_cache)):
+        raise SystemExit(f"Expected COM source files are missing under {package_dir}")
 
-    # These functions are exported by ole32.dll on Windows 7.
     patch_link(bindings, "CoTaskMemAlloc")
     patch_link(bindings, "CoTaskMemFree")
     patch_link(marshaler, "CoCreateFreeThreadedMarshaler")
 
-    # This modern API is not available on Windows 7. Its declaration is unused by
-    # windows-core itself, but it shares the generated bindings object with the
-    # legacy COM functions above; leaving it there pulls combase.dll into the EXE.
-    # Remove only this exact generated declaration, never redirect it to ole32.dll.
-    import re
-    remaining = bindings.read_text(encoding="utf-8")
-    pattern = r'^windows_link::link!\("combase\.dll"\s+"system"\s+fn CoIncrementMTAUsage\([^\n]*\);\s*\n'
-    remaining, removed = re.subn(pattern, "", remaining, flags=re.MULTILINE)
-    if removed not in (0, 1):
-        raise SystemExit("Expected at most one CoIncrementMTAUsage declaration; refusing to patch an unexpected source.")
-    if removed:
-        bindings.write_text(remaining, encoding="utf-8", newline="\n")
-        print("CoIncrementMTAUsage: removed unused Windows 8+ static import")
-    elif "CoIncrementMTAUsage" in remaining:
-        raise SystemExit("Found an unexpected CoIncrementMTAUsage source declaration; refusing to patch.")
+    # Both APIs are unavailable on Windows 7. Their uses are dynamically
+    # resolved in factory_cache.rs, so neither can remain a static import.
+    remove_import(bindings, "CoIncrementMTAUsage")
+    remove_import(bindings, "RoGetActivationFactory")
+    patch_factory_cache(factory_cache)
 
-print(f"Verified targeted Windows 7 COM import patch in {PACKAGE}.")
+print(f"Verified targeted Windows 7 COM/WinRT compatibility patch in {PACKAGE}.")
