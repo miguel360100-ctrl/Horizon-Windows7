@@ -27,27 +27,30 @@ if not source_dirs:
 
 def patch_link(path: Path, function: str) -> None:
     content = path.read_text(encoding="utf-8")
-    old = f'windows_link::link!("combase.dll" "system" fn {function}'
-    new = f'windows_link::link!("ole32.dll" "system" fn {function}'
-    # The upstream function is nested four spaces deeper than the compact fixture.
-    # Match its real eight-space indentation while keeping the replacement body unchanged.
-    old = "\n".join(("    " + line if line else line) for line in old.split("\n"))
-    if content.count(old) == 1:
-        path.write_text(content.replace(old, new, 1), encoding="utf-8", newline="\n")
+    # Match the exact link! declaration by function name, independent of indentation
+    # or whether this windows-core release spells the macro windows_link/windows_core.
+    pattern = rf'(?m)^([ \t]*(?:windows_link|windows_core)::link!\()"combase\.dll"(?=[^\n]*\bfn\s+{re.escape(function)}\b)'
+    updated, changed = re.subn(pattern, r'\1"ole32.dll"', content)
+    if changed == 1:
+        path.write_text(updated, encoding="utf-8", newline="\n")
         print(f"{function}: combase.dll -> ole32.dll")
-    elif content.count(new) == 1:
-        print(f"{function}: already linked to ole32.dll")
+    elif changed == 0:
+        already = rf'(?m)^[ \t]*(?:windows_link|windows_core)::link!\()"ole32\.dll"(?=[^\n]*\bfn\s+{re.escape(function)}\b)'
+        if len(re.findall(already, content)) == 1:
+            print(f"{function}: already linked to ole32.dll")
+        else:
+            raise SystemExit(f"Expected exactly one COM binding for {function} in {path}; refusing unexpected source.")
     else:
-        raise SystemExit(f"Expected exactly one COM binding for {function} in {path}; refusing unexpected source.")
+        raise SystemExit(f"Found {changed} COM bindings for {function} in {path}; refusing ambiguous source.")
 
 def remove_import(path: Path, function: str) -> None:
     content = path.read_text(encoding="utf-8")
-    pattern = rf'^windows_link::link!\("[^"]+"\s+"system"\s+fn {re.escape(function)}\([^\n]*\);\s*\n'
-    updated, removed = re.subn(pattern, "", content, flags=re.MULTILINE)
+    pattern = rf'(?m)^[ \t]*(?:windows_link|windows_core)::link!\("[^"]+"[ \t]+"system"[ \t]+fn[ \t]+{re.escape(function)}\([^\n]*\);[ \t]*\n'
+    updated, removed = re.subn(pattern, "", content)
     if removed == 1:
         path.write_text(updated, encoding="utf-8", newline="\n")
         print(f"{function}: removed unsupported static import")
-    elif removed == 0 and re.search(rf'fn\s+{re.escape(function)}\b', content):
+    elif removed == 0 and re.search(rf'\bfn\s+{re.escape(function)}\b', content):
         raise SystemExit(f"Found unexpected {function} declaration; refusing to patch.")
     elif removed > 1:
         raise SystemExit(f"Found multiple {function} declarations; refusing to patch.")
