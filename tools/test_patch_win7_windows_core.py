@@ -58,9 +58,9 @@ class WindowsCorePatchTests(unittest.TestCase):
         sys_package = cargo_home / "registry" / "src" / "test-registry" / "windows-sys-0.61.2"
         sys_source = sys_package / "src" / "Windows" / "Win32" / "System" / "Com" / "mod.rs"
         sys_source.parent.mkdir(parents=True, exist_ok=True)
-        (sys_package / "Cargo.toml").write_text('[package]\\nname = "windows-sys"\\n', encoding="utf-8")
+        (sys_package / "Cargo.toml").write_text('[package]\nname = "windows-sys"\n', encoding="utf-8")
         sys_source.write_text(
-            'windows_link::link!("combase.dll" "system" fn CoTaskMemFree(pv: *const core::ffi::c_void));\\n',
+            'windows_link::link!("combase.dll" "system" fn CoTaskMemFree(pv: *const core::ffi::c_void));\n',
             encoding="utf-8",
         )
         return cargo_home
