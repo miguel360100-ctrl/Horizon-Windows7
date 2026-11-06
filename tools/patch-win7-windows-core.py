@@ -132,9 +132,11 @@ type CoIncrementMTAUsage = extern "system" fn(cookie: *mut *mut c_void) -> crate
     )
     if not aliases_present:
         marker = "use super::*;\n"
-        if content.count(marker) != 1:
+        position = content.find(marker)
+        if position < 0:
             raise SystemExit("Could not locate factory_cache module imports for function-pointer aliases.")
-        content = content.replace(marker, marker + aliases, 1)
+        position += len(marker)
+        content = content[:position] + aliases + content[position:]
     path.write_text(content, encoding="utf-8", newline="\n")
 
 for package_dir in source_dirs:
