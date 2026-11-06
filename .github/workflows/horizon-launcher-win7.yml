@@ -255,7 +255,7 @@ jobs:
           if ($found.Count -gt 0) {
             $lines = $imports -split "`r?`n"
             for ($i = 0; $i -lt $lines.Length; $i++) {
-              if ($lines[$i] -match "combase\\.dll") {
+              if ($lines[$i] -match 'combase\.dll') {
                 $start = [Math]::Max(0, $i - 2)
                 $end = [Math]::Min($lines.Length - 1, $i + 12)
                 Write-Host "Import table context for combase.dll:"
