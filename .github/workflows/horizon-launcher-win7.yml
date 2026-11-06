@@ -233,6 +233,8 @@ jobs:
             "GetDpiForWindow",
             "GetDpiForMonitor",
             "GetSystemMetricsForDpi",
+            "RegisterSuspendResumeNotification",
+            "UnregisterSuspendResumeNotification",
             "GetPointerType",
             "GetDpiForSystem",
             "GetThreadDpiAwarenessContext",
