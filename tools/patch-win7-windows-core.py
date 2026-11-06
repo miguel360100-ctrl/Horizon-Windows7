@@ -168,7 +168,7 @@ def patch_windows_sys_task_mem_free() -> None:
             existing = [
                 line for line in lines
                 if "::link!(" in line and '"ole32.dll"' in line
-                and re.search(r"\\bfn\\s+CoTaskMemFree\\b", line)
+                and re.search(r"\bfn\s+CoTaskMemFree\b", line)
             ]
             already += len(existing)
             if len(targets) > 1:
