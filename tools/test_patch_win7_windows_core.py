@@ -63,6 +63,14 @@ class WindowsCorePatchTests(unittest.TestCase):
             'windows_link::link!("combase.dll" "system" fn CoTaskMemFree(pv: *const core::ffi::c_void));\n',
             encoding="utf-8",
         )
+        generated_package = cargo_home / "registry" / "src" / "test-registry" / "windows-0.62.2"
+        generated_source = generated_package / "src" / "Windows" / "Win32" / "System" / "Com" / "mod.rs"
+        generated_source.parent.mkdir(parents=True, exist_ok=True)
+        (generated_package / "Cargo.toml").write_text('[package]\\nname = "windows"\\n', encoding="utf-8")
+        generated_source.write_text(
+            'windows_link::link!("combase.dll" "system" fn CoTaskMemFree(pv: *const core::ffi::c_void));\\n',
+            encoding="utf-8",
+        )
         return cargo_home
 
     def run_patcher(self, cargo_home: Path) -> subprocess.CompletedProcess[str]:
@@ -85,6 +93,8 @@ class WindowsCorePatchTests(unittest.TestCase):
             self.assertNotIn("CoIncrementMTAUsage", bindings)
             sys_source = cargo_home / "registry" / "src" / "test-registry" / "windows-sys-0.61.2" / "src" / "Windows" / "Win32" / "System" / "Com" / "mod.rs"
             self.assertIn('link!("ole32.dll" "system" fn CoTaskMemFree', sys_source.read_text(encoding="utf-8"))
+            generated_source = cargo_home / "registry" / "src" / "test-registry" / "windows-0.62.2" / "src" / "Windows" / "Win32" / "System" / "Com" / "mod.rs"
+            self.assertIn('link!("ole32.dll" "system" fn CoTaskMemFree', generated_source.read_text(encoding="utf-8"))
             self.assertNotIn("RoGetActivationFactory", bindings)
             self.assertIn('delay_load::<RoGetActivationFactory>', factory)
             self.assertIn('delay_load::<CoIncrementMTAUsage>', factory)
