@@ -14,6 +14,7 @@ on:
       - "tools/patch-win7-launcher-graphics.py"
       - "tools/patch-win7-uninstaller.py"
       - "tools/patch-win7-windows-core.py"
+      - "tools/patch-win7-power-notifications.py"
       - "tools/test_patch_win7_windows_core.py"
   pull_request:
     branches: [main]
@@ -24,6 +25,7 @@ on:
       - "tools/patch-win7-launcher-graphics.py"
       - "tools/patch-win7-uninstaller.py"
       - "tools/patch-win7-windows-core.py"
+      - "tools/patch-win7-power-notifications.py"
       - "tools/test_patch_win7_windows_core.py"
 
 permissions:
@@ -133,6 +135,14 @@ jobs:
         run: |
           python win7-port/tools/test_patch_win7_windows_core.py
           if ($LASTEXITCODE -ne 0) { throw "The Windows 7 COM import patch regression tests failed" }
+
+      - name: Patch Windows 8-only power notification APIs
+        shell: pwsh
+        run: |
+          python win7-port/tools/patch-win7-power-notifications.py win7-port/gpui-fast-0.1.13/crates/gpui_windows/src/platform.rs
+          if ($LASTEXITCODE -ne 0) { throw "Could not disable Windows 8-only suspend/resume notifications" }
+          python win7-port/tools/patch-win7-power-notifications.py --self-test
+          if ($LASTEXITCODE -ne 0) { throw "Windows 7 power notification regression tests failed" }
 
       - name: Add complete Windows 7 build import support
         shell: pwsh
