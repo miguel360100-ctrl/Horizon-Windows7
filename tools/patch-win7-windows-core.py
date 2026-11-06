@@ -67,7 +67,7 @@ for package_dir in source_dirs:
     if removed not in (0, 1):
         raise SystemExit("Expected at most one CoIncrementMTAUsage declaration; refusing to patch an unexpected source.")
     if removed:
-        bindings.write_text(remaining, encoding="utf-8", newline="\\n")
+        bindings.write_text(remaining, encoding="utf-8", newline="\n")
         print("CoIncrementMTAUsage: removed unused Windows 8+ static import")
     elif "CoIncrementMTAUsage" in remaining:
         raise SystemExit("Found an unexpected CoIncrementMTAUsage source declaration; refusing to patch.")
