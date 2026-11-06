@@ -14,6 +14,7 @@ on:
       - "tools/patch-win7-launcher-graphics.py"
       - "tools/patch-win7-uninstaller.py"
       - "tools/patch-win7-windows-core.py"
+      - "tools/test_patch_win7_windows_core.py"
 
 permissions:
   contents: read
@@ -116,6 +117,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Could not fetch the locked Windows dependencies" }
           python win7-port/tools/patch-win7-windows-core.py
           if ($LASTEXITCODE -ne 0) { throw "Could not redirect the Windows 8+ combase.dll references to the Windows 7 ole32.dll exports" }
+
+      - name: Test Windows 7 COM import patch regression cases
+        shell: pwsh
+        run: |
+          python win7-port/tools/test_patch_win7_windows_core.py
+          if ($LASTEXITCODE -ne 0) { throw "The Windows 7 COM import patch regression tests failed" }
 
       - name: Add complete Windows 7 build import support
         shell: pwsh
