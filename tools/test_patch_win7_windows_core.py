@@ -63,11 +63,12 @@ class WindowsCorePatchTests(unittest.TestCase):
             self.assertIn('link!("ole32.dll" "system" fn CoTaskMemAlloc', bindings)
             self.assertIn('link!("ole32.dll" "system" fn CoTaskMemFree', bindings)
             self.assertIn('link!("ole32.dll" "system" fn CoCreateFreeThreadedMarshaler', marshaler)
-            self.assertIn('link!("combase.dll" "system" fn CoIncrementMTAUsage', bindings)
+            self.assertNotIn("CoIncrementMTAUsage", bindings)
 
             second = self.run_patcher(cargo_home)
             self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
             self.assertIn("already linked to ole32.dll", second.stdout)
+            self.assertNotIn("CoIncrementMTAUsage", (package / "src" / "imp" / "bindings.rs").read_text(encoding="utf-8"))
 
     def test_refuses_an_unexpected_windows_core_source_shape(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
