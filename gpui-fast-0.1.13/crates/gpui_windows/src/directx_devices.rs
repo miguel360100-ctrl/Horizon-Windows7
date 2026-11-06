@@ -14,12 +14,11 @@ use windows::Win32::{
             D3D11_SDK_VERSION, D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext,
         },
         Dxgi::{
-            CreateDXGIFactory2, DXGI_CREATE_FACTORY_DEBUG, DXGI_CREATE_FACTORY_FLAGS,
-            IDXGIAdapter1, IDXGIFactory6,
+            CreateDXGIFactory1, IDXGIAdapter1, IDXGIFactory1,
         },
     },
 };
-use windows::core::Interface;
+use windows::core::{HRESULT, Interface};
 
 pub(crate) fn try_to_recover_from_device_lost<T>(mut f: impl FnMut() -> Result<T>) -> Result<T> {
     (0..5)
@@ -38,7 +37,7 @@ pub(crate) fn try_to_recover_from_device_lost<T>(mut f: impl FnMut() -> Result<T
 #[derive(Clone)]
 pub(crate) struct DirectXDevices {
     pub(crate) adapter: IDXGIAdapter1,
-    pub(crate) dxgi_factory: IDXGIFactory6,
+    pub(crate) dxgi_factory: IDXGIFactory1,
     pub(crate) device: ID3D11Device,
     pub(crate) device_context: ID3D11DeviceContext,
 }
@@ -74,7 +73,10 @@ impl DirectXDevices {
 
 #[inline]
 fn check_debug_layer_available() -> bool {
-    #[cfg(debug_assertions)]
+    // The DXGI debug interface is newer than Windows 7. Keep it out of the
+    // Win7 compatibility build, but preserve the original debug-layer probe
+    // for debug builds on newer Windows versions.
+    #[cfg(all(debug_assertions, not(feature = "windows7-compat")))]
     {
         use windows::Win32::Graphics::Dxgi::{DXGIGetDebugInterface1, IDXGIInfoQueue};
 
@@ -82,29 +84,21 @@ fn check_debug_layer_available() -> bool {
             .log_err()
             .is_some()
     }
-    #[cfg(not(debug_assertions))]
+    #[cfg(any(not(debug_assertions), feature = "windows7-compat"))]
     {
         false
     }
 }
 
 #[inline]
-fn get_dxgi_factory(debug_layer_available: bool) -> Result<IDXGIFactory6> {
-    let factory_flag = if debug_layer_available {
-        DXGI_CREATE_FACTORY_DEBUG
-    } else {
-        #[cfg(debug_assertions)]
-        log::warn!(
-            "Failed to get DXGI debug interface. DirectX debugging features will be disabled."
-        );
-        DXGI_CREATE_FACTORY_FLAGS::default()
-    };
-    unsafe { Ok(CreateDXGIFactory2(factory_flag)?) }
+fn get_dxgi_factory(_debug_layer_available: bool) -> Result<IDXGIFactory1> {
+    // DXGI 1.1 is present on Windows 7. CreateDXGIFactory2 requires a newer OS.
+    unsafe { Ok(CreateDXGIFactory1::<IDXGIFactory1>()?) }
 }
 
 #[inline]
 fn get_adapter(
-    dxgi_factory: &IDXGIFactory6,
+    dxgi_factory: &IDXGIFactory1,
     debug_layer_available: bool,
 ) -> Result<(
     IDXGIAdapter1,
@@ -113,7 +107,7 @@ fn get_adapter(
     D3D_FEATURE_LEVEL,
 )> {
     for adapter_index in 0.. {
-        let adapter: IDXGIAdapter1 = unsafe { dxgi_factory.EnumAdapters(adapter_index)?.cast()? };
+        let adapter: IDXGIAdapter1 = unsafe { dxgi_factory.EnumAdapters1(adapter_index)? };
         if let Ok(desc) = unsafe { adapter.GetDesc1() } {
             let gpu_name = String::from_utf16_lossy(&desc.Description)
                 .trim_matches(char::from(0))
@@ -152,23 +146,54 @@ fn get_device(
     } else {
         D3D11_CREATE_DEVICE_BGRA_SUPPORT
     };
-    unsafe {
+    // Windows 7's D3D11 runtime does not understand FEATURE_LEVEL_11_1.
+    // Passing it in the requested list makes D3D11CreateDevice fail with
+    // E_INVALIDARG before it can fall back to 11_0. Retry with the Windows 7
+    // compatible list in that specific case; preserve all other failures.
+    let requested_feature_levels = [
+        D3D_FEATURE_LEVEL_11_1,
+        D3D_FEATURE_LEVEL_11_0,
+        D3D_FEATURE_LEVEL_10_1,
+    ];
+    let windows_7_feature_levels = [
+        D3D_FEATURE_LEVEL_11_0,
+        D3D_FEATURE_LEVEL_10_1,
+    ];
+    let create_device = unsafe {
         D3D11CreateDevice(
             adapter,
             D3D_DRIVER_TYPE_UNKNOWN,
             HMODULE::default(),
             device_flags,
-            // 4x MSAA is required for Direct3D Feature Level 10.1 or better
-            Some(&[
-                D3D_FEATURE_LEVEL_11_1,
-                D3D_FEATURE_LEVEL_11_0,
-                D3D_FEATURE_LEVEL_10_1,
-            ]),
+            Some(&requested_feature_levels),
             D3D11_SDK_VERSION,
             Some(&mut device),
             feature_level,
             context,
-        )?;
+        )
+    };
+    if let Err(error) = create_device {
+        // HRESULT_FROM_WIN32(ERROR_INVALID_PARAMETER) == E_INVALIDARG.
+        if error.code() != HRESULT(0x8007_0057_u32 as i32) {
+            return Err(error.into());
+        }
+
+        log::info!(
+            "D3D11 rejected feature level 11.1; retrying with the Windows 7 compatible feature-level list."
+        );
+        unsafe {
+            D3D11CreateDevice(
+                adapter,
+                D3D_DRIVER_TYPE_UNKNOWN,
+                HMODULE::default(),
+                device_flags,
+                Some(&windows_7_feature_levels),
+                D3D11_SDK_VERSION,
+                Some(&mut device),
+                feature_level,
+                context,
+            )?;
+        }
     }
     let device = device.unwrap();
     let mut data = D3D11_FEATURE_DATA_D3D10_X_HARDWARE_OPTIONS::default();

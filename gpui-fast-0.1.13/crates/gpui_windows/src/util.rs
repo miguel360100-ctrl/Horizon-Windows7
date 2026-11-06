@@ -3,10 +3,6 @@ use std::sync::OnceLock;
 use anyhow::Context;
 use gpui_util::ResultExt;
 use windows::{
-    UI::{
-        Color,
-        ViewManagement::{UIColorType, UISettings},
-    },
     Win32::{
         Foundation::*, Graphics::Dwm::*, System::LibraryLoader::LoadLibraryA,
         UI::WindowsAndMessaging::*,
@@ -16,6 +12,9 @@ use windows::{
 
 use crate::*;
 use gpui::*;
+
+#[cfg(not(feature = "windows7-compat"))]
+use windows::UI::{Color, ViewManagement::{UIColorType, UISettings}};
 
 pub(crate) trait HiLoWord {
     fn hiword(&self) -> u16;
@@ -155,6 +154,7 @@ pub(crate) fn logical_point(x: f32, y: f32, scale_factor: f32) -> Point<Pixels> 
     }
 }
 
+#[cfg(not(feature = "windows7-compat"))]
 // https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/apply-windows-themes
 #[inline]
 pub(crate) fn system_appearance() -> Result<WindowAppearance> {
@@ -169,6 +169,15 @@ pub(crate) fn system_appearance() -> Result<WindowAppearance> {
     }
 }
 
+#[cfg(feature = "windows7-compat")]
+#[inline]
+pub(crate) fn system_appearance() -> Result<WindowAppearance> {
+    // Windows 7 has no WinRT UISettings or system-wide light/dark app mode.
+    // Use the classic light appearance; the launcher's own theme remains intact.
+    Ok(WindowAppearance::Light)
+}
+
+#[cfg(not(feature = "windows7-compat"))]
 #[inline(always)]
 fn is_color_light(color: &Color) -> bool {
     ((5 * color.G as u32) + (2 * color.R as u32) + color.B as u32) > (8 * 128)
