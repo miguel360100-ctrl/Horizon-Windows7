@@ -162,14 +162,14 @@ def patch_windows_sys_task_mem_free() -> None:
             targets = [
                 i for i, line in enumerate(lines)
                 if "::link!(" in line and '"combase.dll"' in line
-                and re.search(r"\\bfn\\s+CoTaskMemFree\\b", line)
+                and re.search(r"\bfn\s+CoTaskMemFree\b", line)
             ]
             if len(targets) > 1:
                 raise SystemExit(f"Found ambiguous CoTaskMemFree bindings in {path}")
             if targets:
                 i = targets[0]
                 lines[i] = lines[i].replace('"combase.dll"', '"ole32.dll"', 1)
-                path.write_text("".join(lines), encoding="utf-8", newline="\\n")
+                path.write_text("".join(lines), encoding="utf-8", newline="\n")
                 patched += 1
                 print(f"{package.name}/{path.name}: CoTaskMemFree combase.dll -> ole32.dll")
     if patched == 0:
