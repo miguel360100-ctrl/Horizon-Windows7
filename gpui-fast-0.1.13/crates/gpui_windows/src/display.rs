@@ -7,13 +7,13 @@ use windows::{
     Win32::{
         Foundation::*,
         Graphics::Gdi::*,
-        UI::{
-            HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI},
-            WindowsAndMessaging::USER_DEFAULT_SCREEN_DPI,
-        },
+        UI::WindowsAndMessaging::USER_DEFAULT_SCREEN_DPI,
     },
     core::*,
 };
+
+#[cfg(not(feature = "windows7-compat"))]
+use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 
 use crate::logical_point;
 use gpui::{
@@ -235,6 +235,23 @@ fn generate_uuid(device_name: &[u16]) -> Uuid {
     Uuid::new_v5(&Uuid::NAMESPACE_DNS, &name)
 }
 
+#[cfg(feature = "windows7-compat")]
+fn get_scale_factor_for_monitor(_monitor: HMONITOR) -> Result<f32> {
+    // Windows 7 has system-DPI awareness but no GetDpiForMonitor.
+    let dc = unsafe { GetDC(None) };
+    if dc.is_invalid() {
+        return Ok(1.0);
+    }
+    let dpi = unsafe { GetDeviceCaps(Some(dc), LOGPIXELSX) };
+    unsafe { ReleaseDC(None, dc) };
+    if dpi > 0 {
+        Ok(dpi as f32 / USER_DEFAULT_SCREEN_DPI as f32)
+    } else {
+        Ok(1.0)
+    }
+}
+
+#[cfg(not(feature = "windows7-compat"))]
 fn get_scale_factor_for_monitor(monitor: HMONITOR) -> Result<f32> {
     let mut dpi_x = 0;
     let mut dpi_y = 0;
