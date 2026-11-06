@@ -15,6 +15,8 @@ doctest = false
 [features]
 default = ["gpui/default"]
 test-support = ["gpui/test-support"]
+# Disable WinRT toast APIs that are not available on Windows 7.
+windows7-compat = []
 screen-capture = ["gpui/screen-capture", "scap"]
 
 [dependencies]
@@ -47,6 +49,7 @@ windows = { workspace = true, features = [
     "Win32_Graphics_Direct3D_Fxc",
     "Win32_Graphics_DirectComposition",
     "Win32_Graphics_DirectManipulation",
+    "Win32_Graphics_Gdi",
     "Win32_Graphics_DirectWrite",
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Dxgi_Common",
@@ -55,6 +58,7 @@ windows = { workspace = true, features = [
     "Win32_Security_Credentials",
     "Win32_Storage_Packaging_Appx",
     "Win32_System_DataExchange",
+    "Win32_System_LibraryLoader",
     "Win32_System_Diagnostics_Debug",
     "Win32_System_Memory",
     "Win32_System_Performance",

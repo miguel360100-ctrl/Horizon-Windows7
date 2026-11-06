@@ -17,7 +17,6 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use smallvec::SmallVec;
 use windows::{
-    UI::ViewManagement::UISettings,
     Win32::{
         Foundation::*,
         Graphics::{Direct3D11::ID3D11Device, Gdi::*},
@@ -38,6 +37,9 @@ use windows::{
 
 use crate::*;
 use gpui::*;
+
+#[cfg(not(feature = "windows7-compat"))]
+use windows::UI::ViewManagement::UISettings;
 
 struct TrackedWindow {
     handle: SafeHwnd,
@@ -65,6 +67,7 @@ pub struct WindowsPlatform {
     background_executor: BackgroundExecutor,
     foreground_executor: ForegroundExecutor,
     text_system: Arc<dyn PlatformTextSystem>,
+    #[cfg(not(feature = "windows7-compat"))]
     direct_write_text_system: Option<Arc<DirectWriteTextSystem>>,
     drop_target_helper: Option<IDropTargetHelper>,
     /// Flag to instruct the `VSyncProvider` thread to invalidate the directx devices
@@ -182,13 +185,64 @@ impl Drop for PowerRequest {
     }
 }
 
+#[cfg(feature = "windows7-compat")]
+fn enable_compatible_dpi_awareness() {
+    // Prefer per-monitor awareness when the host OS supports it. Resolve the
+    // newer entry points dynamically so they are never imported on Windows 7.
+    unsafe {
+        let user32 = GetModuleHandleA(PCSTR::from_raw(b"user32.dll\0".as_ptr())).ok();
+        if let Some(entry) = user32.and_then(|module| {
+            GetProcAddress(
+                module,
+                PCSTR::from_raw(b"SetProcessDpiAwarenessContext\0".as_ptr()),
+            )
+        }) {
+            type SetProcessDpiAwarenessContextFn =
+                unsafe extern "system" fn(*mut std::ffi::c_void) -> BOOL;
+            let set_awareness: SetProcessDpiAwarenessContextFn = std::mem::transmute(entry);
+            // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 is the pseudo-handle -4.
+            if set_awareness((-4isize) as *mut std::ffi::c_void).as_bool() {
+                return;
+            }
+            // Continue to the Windows 8.1 API: this entry point exists on
+            // Windows 10 1607, while the V2 context was added in 1703. If
+            // awareness was already set, the older API will harmlessly reject
+            // the second attempt too.
+        }
+
+        if let Ok(shcore) = LoadLibraryA(PCSTR::from_raw(b"shcore.dll\0".as_ptr())) {
+            if let Some(entry) = GetProcAddress(
+                shcore,
+                PCSTR::from_raw(b"SetProcessDpiAwareness\0".as_ptr()),
+            ) {
+                type SetProcessDpiAwarenessFn = unsafe extern "system" fn(i32) -> i32;
+                let set_awareness: SetProcessDpiAwarenessFn = std::mem::transmute(entry);
+                // PROCESS_PER_MONITOR_DPI_AWARE = 2 (Windows 8.1+).
+                if set_awareness(2) == 0 {
+                    return;
+                }
+                log::debug!("The Windows 8.1 per-monitor DPI mode was unavailable or already configured.");
+            }
+        }
+
+        // Windows 7 fallback: system-DPI awareness is the highest mode it offers.
+        if !SetProcessDPIAware().as_bool() {
+            log::debug!("Could not enable system-DPI awareness (it may already be configured).");
+        }
+    }
+}
+
 impl WindowsPlatform {
     pub fn new(headless: bool) -> Result<Self> {
+        #[cfg(feature = "windows7-compat")]
+        enable_compatible_dpi_awareness();
+
         unsafe {
             OleInitialize(None).context("unable to initialize Windows OLE")?;
         }
         // A platform that can become windowed needs the real text system from the start: the app
         // keeps the one it's created with. It gets DirectX devices when it becomes windowed.
+        #[cfg(not(feature = "windows7-compat"))]
         let (text_system, direct_write_text_system) = if !headless {
             let dw_text_system = Arc::new(
                 DirectWriteTextSystem::new(None).context("Error creating DirectWriteTextSystem")?,
@@ -202,6 +256,13 @@ impl WindowsPlatform {
                 Arc::new(gpui::NoopTextSystem::new()) as Arc<dyn PlatformTextSystem>,
                 None,
             )
+        };
+
+        #[cfg(feature = "windows7-compat")]
+        let text_system = if !headless {
+            Arc::new(GdiTextSystem::new()) as Arc<dyn PlatformTextSystem>
+        } else {
+            Arc::new(gpui::NoopTextSystem::new()) as Arc<dyn PlatformTextSystem>
         };
 
         let (main_sender, main_receiver) = PriorityQueueReceiver::new();
@@ -289,6 +350,7 @@ impl WindowsPlatform {
             background_executor,
             foreground_executor,
             text_system,
+            #[cfg(not(feature = "windows7-compat"))]
             direct_write_text_system,
             suspend_resume_notification: RefCell::new(None),
             power_saving_notification: RefCell::new(None),
@@ -423,6 +485,7 @@ impl WindowsPlatform {
     /// Creates the DirectX devices that windows draw with, and starts vsync.
     fn attach_gpu(&self) -> Result<()> {
         let devices = DirectXDevices::new().context("Creating DirectX devices")?;
+        #[cfg(not(feature = "windows7-compat"))]
         if let Some(text_system) = &self.direct_write_text_system {
             text_system.handle_gpu_lost(&devices)?;
         }
@@ -436,6 +499,7 @@ impl WindowsPlatform {
         if let Some(stop) = self.vsync_stop.borrow_mut().take() {
             crate::fast::frame_schedule::stop_vsync(stop, &self.inner.state.draw_coordinator);
         }
+        #[cfg(not(feature = "windows7-compat"))]
         if let Some(text_system) = &self.direct_write_text_system {
             text_system.release_gpu();
         }
@@ -446,6 +510,7 @@ impl WindowsPlatform {
         let Some(directx_devices) = self.inner.state.directx_devices.borrow().clone() else {
             return;
         };
+        #[cfg(not(feature = "windows7-compat"))]
         let Some(direct_write_text_system) = &self.direct_write_text_system else {
             return;
         };
@@ -455,7 +520,10 @@ impl WindowsPlatform {
         let platform_window: SafeHwnd = self.handle.into();
         let validation_number = self.inner.validation_number;
         let all_windows = Arc::downgrade(&self.raw_window_handles);
+        #[cfg(not(feature = "windows7-compat"))]
         let text_system = Arc::downgrade(direct_write_text_system);
+        #[cfg(feature = "windows7-compat")]
+        let text_system = ();
         let invalidate_devices = self.invalidate_devices.clone();
         let fast_frame_wake =
             crate::fast::frame_schedule::frame_wake(&self.inner.state.draw_coordinator);
@@ -1541,6 +1609,7 @@ struct PlatformWindowCreateContext {
     dispatcher: Option<Arc<WindowsDispatcher>>,
 }
 
+#[cfg(not(feature = "windows7-compat"))]
 fn has_package_identity() -> bool {
     let mut package_full_name_length = 0;
     let result = unsafe {
@@ -1557,6 +1626,12 @@ fn has_package_identity() -> bool {
         log::warn!("failed to determine whether the process has package identity: {result:?}");
         false
     }
+}
+
+#[cfg(feature = "windows7-compat")]
+fn has_package_identity() -> bool {
+    // AppX package identity is not available on Windows 7.
+    false
 }
 
 fn open_target(target: impl AsRef<OsStr>) -> Result<()> {
@@ -1740,8 +1815,18 @@ fn load_icon() -> Result<HICON> {
     Ok(HICON(handle.0))
 }
 
+#[cfg(feature = "windows7-compat")]
 #[inline]
 fn should_auto_hide_scrollbars() -> Result<bool> {
+    // Windows Runtime UISettings is unavailable on Windows 7. Use the
+    // platform-neutral scrollbar behavior instead of importing WinRT APIs.
+    Ok(false)
+}
+
+#[cfg(not(feature = "windows7-compat"))]
+#[inline]
+fn should_auto_hide_scrollbars() -> Result<bool> {
+    // Keep the original Windows behavior on supported systems.
     let ui_settings = UISettings::new()?;
     Ok(ui_settings.AutoHideScrollBars()?)
 }
@@ -1807,7 +1892,10 @@ fn handle_gpu_device_lost(
     platform_window: HWND,
     validation_number: usize,
     all_windows: &std::sync::Weak<RwLock<SmallVec<[TrackedWindow; 4]>>>,
+    #[cfg(not(feature = "windows7-compat"))]
     text_system: &std::sync::Weak<DirectWriteTextSystem>,
+    #[cfg(feature = "windows7-compat")]
+    _text_system: &(),
 ) -> Result<()> {
     #[cfg(test)]
     crate::fast::native_tests::recovery_started();
@@ -1830,6 +1918,7 @@ fn handle_gpu_device_lost(
         );
     }
 
+    #[cfg(not(feature = "windows7-compat"))]
     if let Some(text_system) = text_system.upgrade() {
         text_system.handle_gpu_lost(&directx_devices)?;
     }

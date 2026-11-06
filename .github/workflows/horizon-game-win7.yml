@@ -1,0 +1,204 @@
+name: Horizon game Windows 7 compatibility
+
+concurrency:
+  group: horizon-game-win7-recovery-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/horizon-game-win7.yml"
+      - "tools/patch-win7-game-graphics.py"
+      - "tools/patch-win7-windows-core.py"
+      - "tools/test_patch_win7_windows_core.py"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/horizon-game-win7.yml"
+      - "tools/patch-win7-game-graphics.py"
+      - "tools/patch-win7-windows-core.py"
+      - "tools/test_patch_win7_windows_core.py"
+
+permissions:
+  contents: read
+
+env:
+  RUSTFLAGS: -C target-feature=+crt-static
+
+jobs:
+  game-client-check:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out the original Horizon source
+        uses: actions/checkout@v4
+        with:
+          repository: horizon-rust/horizon
+          ref: 294448014fba585f8d5d09dd8886f482493b6417
+          path: horizon
+
+      - name: Check out the Windows 7 build patches
+        uses: actions/checkout@v4
+        with:
+          repository: miguel360100-ctrl/Horizon-Windows7
+          ref: win7-compat-dev
+          path: win7-port
+
+      - name: Set up Python for package integrity verification
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install nightly Rust and source
+        shell: pwsh
+        run: |
+          rustup toolchain install nightly --profile minimal --component rust-src
+          $targets = rustc +nightly --print target-list
+          if ($targets -notcontains "x86_64-win7-windows-msvc") {
+            throw "Nightly does not include x86_64-win7-windows-msvc"
+          }
+
+      - name: Remove unsupported DirectX 12 backend from the Windows 7 game
+        working-directory: horizon
+        shell: pwsh
+        run: |
+          python ../win7-port/tools/patch-win7-game-graphics.py .
+          if ($LASTEXITCODE -ne 0) { throw "Could not patch the Windows 7 graphics backends" }
+          Write-Host "Applied Windows 7 graphics and legacy SAPI compatibility patches."
+
+      - name: Patch Windows COM imports for the Windows 7 system DLL
+        working-directory: horizon
+        shell: pwsh
+        run: |
+          cargo +nightly fetch --manifest-path Cargo.toml
+          if ($LASTEXITCODE -ne 0) { throw "Could not fetch the locked Windows game dependencies" }
+          python ../win7-port/tools/patch-win7-windows-core.py
+          if ($LASTEXITCODE -ne 0) { throw "Could not redirect legacy COM imports to ole32.dll for Windows 7" }
+
+      - name: Test Windows 7 COM import patch regression cases
+        working-directory: horizon
+        shell: pwsh
+        run: |
+          python ../win7-port/tools/test_patch_win7_windows_core.py
+          if ($LASTEXITCODE -ne 0) { throw "The Windows 7 COM import patch regression tests failed" }
+
+      - name: Check the original native game client for Windows 7
+        working-directory: horizon
+        shell: pwsh
+        run: |
+          cargo +nightly check -p horizon-client --no-default-features --features audio --bin horizon-client --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
+
+      - name: Build the original Horizon game and companion tools for Windows 7
+        working-directory: horizon
+        shell: pwsh
+        run: |
+          # The stock Windows controller backend uses Windows.Gaming.Input (WinRT),
+          # which does not exist on Windows 7. Keep sound and keyboard/mouse, but build
+          # the client and ctl without the optional native controller feature.
+          cargo +nightly build --locked --release -p horizon-client --no-default-features --features audio --bin horizon-client --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
+          cargo +nightly build --locked --release -p horizon-client-lib --no-default-features --features audio --bin horizon-ctl --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
+          cargo +nightly build --locked --release -p horizon-prepare --bin horizon-prepare -p horizon-server --bin horizon-server --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
+          $binDir = "target/x86_64-win7-windows-msvc/release"
+          foreach ($name in @("horizon-client.exe", "horizon-ctl.exe", "horizon-prepare.exe", "horizon-server.exe")) {
+            if (-not (Test-Path (Join-Path $binDir $name))) { throw "The Windows 7 package is missing $name" }
+          }
+
+      - name: Package Windows 7 binaries for the original import flow
+        working-directory: horizon
+        shell: pwsh
+        run: |
+          $binDir = "target/x86_64-win7-windows-msvc/release"
+          $stage = "dist/horizon-win7-binaries"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          $names = @("horizon-client.exe", "horizon-ctl.exe", "horizon-prepare.exe", "horizon-server.exe")
+          foreach ($name in $names) {
+            $source = Join-Path $binDir $name
+            if (-not (Test-Path $source)) { throw "Missing Windows 7 binary: $name" }
+            Copy-Item $source (Join-Path $stage $name) -Force
+          }
+          $metadata = @{
+            schema = 1
+            base = "nightly-2026-11-03"
+            source_commit = "294448014fba585f8d5d09dd8886f482493b6417"
+            target = "x86_64-win7-windows-msvc"
+          } | ConvertTo-Json
+          [System.IO.File]::WriteAllText((Join-Path $stage "horizon-win7-build.json"), $metadata, [System.Text.UTF8Encoding]::new($false))
+          $readme = @"
+          HORIZON — COMPATIBILIDADE COM WINDOWS 7 SP1 x64
+
+          1. Abra o Horizon e instale a versão oficial Nightly 2026-11-03.
+          2. Não extraia este ZIP.
+          3. No launcher, use a opção de importar um build/uma versão e selecione este arquivo.
+          4. O launcher criará uma versão separada chamada Imported e manterá a versão oficial intacta.
+          5. Selecione a versão Imported para iniciar o jogo.
+
+          IMPORTANTE:
+          - Este pacote é para Windows 7 SP1 de 64 bits.
+          - Ele foi compilado para usar os arquivos e recursos da Nightly 2026-11-03.
+          - Não escolha outra versão como base ao importar.
+          - A compatibilidade de execução e renderização ainda precisa ser validada no Windows 7 real.
+          - Controles nativos Windows.Gaming.Input ficam desativados nesta versão por dependerem de WinRT; teclado e mouse continuam disponíveis.
+          - O launcher Win7 não se autoatualiza para evitar substituir esta versão por uma versão moderna incompatível.
+          "@
+          [System.IO.File]::WriteAllText((Join-Path $stage "LEIA-ME-Windows7.txt"), $readme, [System.Text.UTF8Encoding]::new($false))
+          $archive = Join-Path (Get-Location) "Horizon-Windows7-Game-Binaries.zip"
+          if (Test-Path $archive) { Remove-Item $archive -Force }
+          Push-Location $stage
+          try {
+            & 7z a -tzip -mx=5 $archive "horizon-client.exe" "horizon-ctl.exe" "horizon-prepare.exe" "horizon-server.exe" "horizon-win7-build.json" "LEIA-ME-Windows7.txt"
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path $archive)) { throw "Could not create the Windows 7 binaries archive" }
+          } finally {
+            Pop-Location
+          }
+          Write-Host "Created a four-binary import package based on the matching official Nightly."
+
+      - name: Smoke-test the native game client process
+        shell: pwsh
+        working-directory: horizon
+        run: |
+          $binary = (Resolve-Path "target/x86_64-win7-windows-msvc/release/horizon-client.exe").Path
+          # The native game client has no --version option; --help is its supported
+          # no-graphics startup path and exits before renderer initialization.
+          $help = Start-Process -FilePath $binary -ArgumentList @("--help") -Wait -PassThru
+          if ($help.ExitCode -ne 0) { throw "The Windows 7 game client failed its --help startup test with exit code $($help.ExitCode)" }
+          Write-Host "The game client starts and handles --help without initializing graphics."
+
+      - name: Audit all imported executables against Windows 7
+        shell: pwsh
+        working-directory: horizon
+        run: |
+          $programFilesX86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
+          $vswhere = Join-Path $programFilesX86 "Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "vswhere.exe was not found" }
+          $vs = & $vswhere -latest -property installationPath
+          if (-not $vs) { throw "Visual Studio installation was not found" }
+          $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC" -Filter dumpbin.exe -Recurse |
+            Where-Object { $_.FullName.EndsWith('\Hostx64\x64\dumpbin.exe', [StringComparison]::OrdinalIgnoreCase) } |
+            Select-Object -First 1
+          if (-not $dumpbin) { throw "dumpbin.exe was not found" }
+          $forbidden = @("combase.dll", "CoIncrementMTAUsage", "dcomp.dll", "icuuc.dll", "icuin.dll", "icu.dll", "u_strlen", "d3d12.dll", "dxcore.dll", "CreateDXGIFactory2", "GetDpiForWindow", "GetDpiForMonitor", "GetSystemMetricsForDpi", "GetPointerType", "GetDpiForSystem", "GetThreadDpiAwarenessContext", "SetThreadDpiAwarenessContext", "GetWindowDpiAwarenessContext", "SetProcessDpiAwarenessContext", "GetCurrentPackageFullName", "GetCurrentPackageFamilyName", "SetThreadDescription", "GetThreadDescription", "GetSystemTimePreciseAsFileTime", "CreateFile2", "RoGetActivationFactory", "RoOriginateErrorW", "RoInitialize", "WindowsCreateString", "WaitOnAddress", "WakeByAddressAll", "WakeByAddressSingle", "ProcessPrng", "bcryptprimitives.dll", "api-ms-win-core-path-l1-1-0.dll", "api-ms-win-core-winrt-l1-1-0.dll", "api-ms-win-appmodel-runtime-l1-1-0.dll", "api-ms-win-core-synch-l1-2-0.dll", "api-ms-win-shcore-scaling-l1-1-1.dll")
+          $binDir = "target/x86_64-win7-windows-msvc/release"
+          foreach ($name in @("horizon-client.exe", "horizon-ctl.exe", "horizon-prepare.exe", "horizon-server.exe")) {
+            $binary = Join-Path $binDir $name
+            $imports = (& $dumpbin.FullName /nologo /imports $binary | Out-String)
+            $found = @($forbidden | Where-Object { $imports -match [regex]::Escape($_) })
+            if ($found.Count -gt 0) { throw "$name imports APIs unavailable on Windows 7: $($found -join ', ')" }
+            Write-Host "Win7 static-import audit passed: $name"
+          }
+
+      - name: Upload Windows 7 game binaries for launcher import
+        uses: actions/upload-artifact@v4
+        with:
+          name: Horizon-Windows7-Game-Binaries
+          path: horizon/Horizon-Windows7-Game-Binaries.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Record target and toolchain
+        if: always()
+        working-directory: horizon
+        run: |
+          rustc +nightly -Vv
+          cargo +nightly -V
+          rustup target list --installed

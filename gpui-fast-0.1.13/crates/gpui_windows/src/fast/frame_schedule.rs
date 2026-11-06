@@ -195,9 +195,15 @@ impl ManipulationFrames {
 
 pub(crate) fn update_manipulation(handler: &DirectManipulationHandler) {
     let frames = &handler.fast_manipulation;
+    let (Some(update_manager), Some(viewport)) =
+        (&handler.update_manager, &handler.viewport)
+    else {
+        frames.contact_at.set(None);
+        return;
+    };
     unsafe {
-        handler.update_manager.Update(None).log_err();
-        let running = handler.viewport.GetStatus().is_ok_and(|status| {
+        update_manager.Update(None).log_err();
+        let running = viewport.GetStatus().is_ok_and(|status| {
             status == DIRECTMANIPULATION_RUNNING || status == DIRECTMANIPULATION_INERTIA
         });
         if running {

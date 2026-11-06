@@ -1,0 +1,322 @@
+name: Horizon launcher Windows 7 integration
+
+concurrency:
+  group: horizon-launcher-win7-recovery-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "gpui-fast-0.1.13/**"
+      - ".github/workflows/horizon-launcher-win7.yml"
+      - "tools/patch-win7-import.py"
+      - "tools/patch-win7-launcher-graphics.py"
+      - "tools/patch-win7-uninstaller.py"
+      - "tools/patch-win7-windows-core.py"
+      - "tools/test_patch_win7_windows_core.py"
+  pull_request:
+    branches: [main]
+    paths:
+      - "gpui-fast-0.1.13/**"
+      - ".github/workflows/horizon-launcher-win7.yml"
+      - "tools/patch-win7-import.py"
+      - "tools/patch-win7-launcher-graphics.py"
+      - "tools/patch-win7-uninstaller.py"
+      - "tools/patch-win7-windows-core.py"
+      - "tools/test_patch_win7_windows_core.py"
+
+permissions:
+  contents: read
+
+# Match the official Windows release: link the MSVC runtime statically so a clean
+# Windows 7 installation does not need the Visual C++ Redistributable installed.
+env:
+  RUSTFLAGS: -C target-feature=+crt-static
+  # Public Horizon-owned Azure app registration, verified against the upstream release build.
+  HORIZON_MSA_CLIENT_ID: 331e08f8-172d-43b9-835a-3108c2fcdbf3
+  HORIZON_CURSEFORGE_API_KEY: ${{ secrets.HORIZON_CURSEFORGE_API_KEY }}
+  HORIZON_TELEMETRY_URL: "off"
+
+jobs:
+  launcher-check:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out the Horizon source snapshot
+        uses: actions/checkout@v4
+        with:
+          repository: horizon-rust/horizon
+          ref: d4540fa520530b5d0f58021e6765410cc5b14d66
+          path: horizon
+
+      - name: Verify the original Horizon UI snapshot
+        shell: pwsh
+        run: |
+          $expected = @{
+            "launcher/Cargo.toml" = "227b93e11533082cade936c3db0099bf65334b58"
+            "launcher/src/main.rs" = "9a82872a35cf1232d77d690364781a18bed08b33"
+            "launcher/src/glass_home_tabs.rs" = "f9705ee01a873288f41cd3ce50aa64d9b4761ec2"
+            "launcher/src/glass_ui.rs" = "4d5816498330ea940744779c4250afbad8cc974d"
+            "launcher/src/home_tabs.rs" = "e716fa69e9c440546c2919fd17bc259da1dcc6e6"
+            "launcher/src/home.rs" = "6812b3b5a6f3aa76eb4a75d8f6f4e31c3e522b5d"
+            "launcher/src/instances_page.rs" = "b4ef2c69285687c5ba5dd40f08e455b0cbe32d78"
+            "launcher/src/backend.rs" = "033750209092de07802512c30c437022a3bfbce2"
+            "launcher/src/build_import.rs" = "8cef7121679b9ca6be66c02bfc89dd945b3755dd"
+            "launcher/src/installer.rs" = "b48f528aed3215f740e504ae85862d48b9270373"
+          }
+          foreach ($path in $expected.Keys) {
+            $actual = (git -C horizon rev-parse "HEAD:$path").Trim()
+            if ($actual -ne $expected[$path]) {
+              throw "The Horizon source file does not match the supplied original ZIP: $path (expected $($expected[$path]), got $actual)"
+            }
+          }
+          Write-Host "Exact original Horizon Launcher source verified. UI modules, glass tabs and layout match the supplied ZIP."
+      - name: Check out the patched GPUI backend
+        uses: actions/checkout@v4
+        with:
+          repository: miguel360100-ctrl/Horizon-Windows7
+          ref: win7-compat-dev
+          path: win7-port
+
+      - name: Install nightly Rust and source
+        shell: pwsh
+        run: |
+          rustup toolchain install nightly --profile minimal --component rust-src
+          $targets = rustc +nightly --print target-list
+          if ($targets -notcontains "x86_64-win7-windows-msvc") {
+            throw "Nightly does not include x86_64-win7-windows-msvc"
+          }
+
+      - name: Point the original launcher at the patched GPUI source
+        shell: pwsh
+        run: |
+          $manifest = "horizon/launcher/Cargo.toml"
+          $text = Get-Content $manifest -Raw
+          $oldGpui = 'gpui = { package = "gpui-fast", version = "0.1.13" }'
+          $newGpui = 'gpui = { package = "gpui", path = "../../win7-port/gpui-fast-0.1.13/crates/gpui" }'
+          $oldPlatform = 'gpui_platform = { package = "gpui-fast-platform", version = "0.1.13", features = ["wayland", "x11", "font-kit"] }'
+          $newPlatform = 'gpui_platform = { package = "gpui_platform", path = "../../win7-port/gpui-fast-0.1.13/crates/gpui_platform", features = ["wayland", "x11", "font-kit", "windows7-compat"] }'
+          if (-not $text.Contains($oldGpui)) { throw "Expected original gpui dependency not found" }
+          if (-not $text.Contains($oldPlatform)) { throw "Expected original gpui_platform dependency not found" }
+          $text = $text.Replace($oldGpui, $newGpui).Replace($oldPlatform, $newPlatform)
+          $text = $text.Replace("[workspace]", "[workspace]`n`n[features]`nwindows7-compat = []")
+          Set-Content -Path $manifest -Value $text -NoNewline
+          $backend = "horizon/launcher/src/backend.rs"
+          $backendText = (Get-Content $backend -Raw).Replace("`r`n", "`n")
+          $oldAsset = "pub fn launcher_asset() -> Option<&'static str> {`n    launcher_asset_running_from(appimage_path().is_some())`n}"
+          $newAsset = "pub fn launcher_asset() -> Option<&'static str> {`n    if cfg!(feature = `"windows7-compat`") { None } else { launcher_asset_running_from(appimage_path().is_some()) }`n}"
+          if (-not $backendText.Contains($oldAsset)) { throw "Launcher self-update asset function was not found" }
+          $backendText = $backendText.Replace($oldAsset, $newAsset)
+          $oldUpdate = '!cfg!(debug_assertions) && std::env::var_os("HORIZON_LAUNCHER_NO_SELF_UPDATE").is_none()'
+          $newUpdate = '!cfg!(debug_assertions) && !cfg!(feature = "windows7-compat") && std::env::var_os("HORIZON_LAUNCHER_NO_SELF_UPDATE").is_none()'
+          if (-not $backendText.Contains($oldUpdate)) { throw "Launcher self-update guard was not found" }
+          $backendText = $backendText.Replace($oldUpdate, $newUpdate)
+          Set-Content -Path $backend -Value $backendText -NoNewline
+          Write-Host "Launcher uses patched GPUI; self-updates are safely disabled for the Win7 build to prevent replacement by the upstream Win10+ binary."
+
+      - name: Set up Python for the focused importer patch
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Patch Windows COM imports for the Windows 7 system DLL
+        shell: pwsh
+        run: |
+          cargo +nightly fetch --manifest-path horizon/launcher/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { throw "Could not fetch the locked Windows dependencies" }
+          python win7-port/tools/patch-win7-windows-core.py
+          if ($LASTEXITCODE -ne 0) { throw "Could not redirect the Windows 8+ combase.dll references to the Windows 7 ole32.dll exports" }
+
+      - name: Test Windows 7 COM import patch regression cases
+        shell: pwsh
+        run: |
+          python win7-port/tools/test_patch_win7_windows_core.py
+          if ($LASTEXITCODE -ne 0) { throw "The Windows 7 COM import patch regression tests failed" }
+
+      - name: Add complete Windows 7 build import support
+        shell: pwsh
+        run: |
+          python win7-port/tools/patch-win7-import.py horizon/launcher/src/build_import.rs
+          if ($LASTEXITCODE -ne 0) { throw "Could not patch the original Horizon build import flow" }
+          python win7-port/tools/patch-win7-launcher-graphics.py horizon/launcher/src/backend.rs horizon/launcher/src/main.rs
+          if ($LASTEXITCODE -ne 0) { throw "Could not patch the Win7 graphics recovery path" }
+          python win7-port/tools/patch-win7-uninstaller.py horizon/launcher/src/installer.rs
+          if ($LASTEXITCODE -ne 0) { throw "Could not make the Windows 7 uninstaller safe across volumes" }
+          Write-Host "The original import UI installs complete Win7 packages; Vulkan crash recovery falls back to OpenGL."
+
+      # Keep the requested distribution filename while preserving the original setup
+      # detection and wizard: only the internal executable-name check is extended.
+      - name: Recognize the Windows 7 setup executable name
+        shell: pwsh
+        run: |
+          $installer = "horizon/launcher/src/installer.rs"
+          $text = Get-Content $installer -Raw
+          $old = 's.to_ascii_lowercase().starts_with("horizon-launcher-setup")'
+          $new = 's.to_ascii_lowercase().starts_with("horizon-launcher-setup") || s.to_ascii_lowercase().starts_with("horizon-windows7-setup")'
+          if (-not $text.Contains($old)) { throw "Original setup executable detection was not found" }
+          $text = $text.Replace($old, $new)
+          Set-Content -Path $installer -Value $text -NoNewline
+          Write-Host "The original setup wizard recognizes Horizon-Windows7-Setup.exe."
+
+      - name: Check the original Horizon launcher for Windows 7
+        shell: pwsh
+        run: |
+          cargo +nightly check --manifest-path horizon/launcher/Cargo.toml --features windows7-compat --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
+
+      # GPUI's older windows-rs bindings link windows.0.48.5.lib. The launcher
+      # lockfile already supplies newer Windows import libraries, so provide this
+      # exact version explicitly rather than silently substituting a different ABI.
+      - name: Provide the Windows 0.48.5 MSVC import library
+        shell: pwsh
+        run: |
+          $metadata = Invoke-RestMethod "https://crates.io/api/v1/crates/windows_x86_64_msvc/0.48.5"
+          $archive = Join-Path $env:RUNNER_TEMP "windows_x86_64_msvc-0.48.5.crate"
+          $extract = Join-Path $env:RUNNER_TEMP "windows_x86_64_msvc-0.48.5"
+          Invoke-WebRequest "https://static.crates.io/crates/windows_x86_64_msvc/windows_x86_64_msvc-0.48.5.crate" -OutFile $archive
+          $actual = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $metadata.version.checksum) { throw "Crates.io checksum mismatch for windows_x86_64_msvc 0.48.5" }
+          New-Item -ItemType Directory -Force -Path $extract | Out-Null
+          tar -xf $archive -C $extract
+          $lib = Join-Path $extract "windows_x86_64_msvc-0.48.5/lib"
+          if (-not (Test-Path (Join-Path $lib "windows.0.48.5.lib"))) { throw "Expected Windows 0.48.5 import library was not found" }
+          Add-Content $env:GITHUB_ENV "RUSTFLAGS=-C target-feature=+crt-static -L native=$lib"
+          Write-Host "Verified and added the exact Windows 0.48.5 import library."
+
+      - name: Test complete Windows 7 package import
+        shell: pwsh
+        run: |
+          cargo +nightly test --locked --manifest-path horizon/launcher/Cargo.toml --features windows7-compat --bin horizon-launcher build_import::tests::a_windows_binary_archive_imports_its_helpers_and_declared_base
+          if ($LASTEXITCODE -ne 0) { throw "The Windows 7 companion-tool import test failed" }
+
+      - name: Build the original Horizon launcher for Windows 7
+        shell: pwsh
+        run: |
+          cargo +nightly build --release --manifest-path horizon/launcher/Cargo.toml --features windows7-compat --target x86_64-win7-windows-msvc -Z build-std=std,panic_abort
+          $built = "horizon/launcher/target/x86_64-win7-windows-msvc/release/horizon-launcher.exe"
+          if (-not (Test-Path $built)) {
+            throw "The Windows 7 launcher binary was not produced at $built"
+          }
+          Copy-Item $built "Horizon-Windows7-Setup.exe" -Force
+
+      - name: Audit static imports against Windows 7
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "vswhere.exe was not found" }
+          $vs = & $vswhere -latest -property installationPath
+          if (-not $vs) { throw "Visual Studio installation was not found" }
+          $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC" -Filter dumpbin.exe -Recurse |
+            Where-Object { $_.FullName.EndsWith('\Hostx64\x64\dumpbin.exe', [StringComparison]::OrdinalIgnoreCase) } |
+            Select-Object -First 1
+          if (-not $dumpbin) { throw "dumpbin.exe was not found" }
+          $imports = (& $dumpbin.FullName /nologo /imports "Horizon-Windows7-Setup.exe" | Out-String)
+          $forbidden = @(
+            "dcomp.dll",
+            "combase.dll",
+            "CoIncrementMTAUsage",
+            "icuuc.dll",
+            "icuin.dll",
+            "icu.dll",
+            "u_strlen",
+            "CreateDXGIFactory2",
+            "GetDpiForWindow",
+            "GetDpiForMonitor",
+            "GetSystemMetricsForDpi",
+            "GetPointerType",
+            "GetDpiForSystem",
+            "GetThreadDpiAwarenessContext",
+            "SetThreadDpiAwarenessContext",
+            "GetWindowDpiAwarenessContext",
+            "GetCurrentPackageFullName",
+            "GetCurrentPackageFamilyName",
+            "SetThreadDescription",
+            "GetThreadDescription",
+            "GetSystemTimePreciseAsFileTime",
+            "CreateFile2",
+            "RoGetActivationFactory",
+            "RoOriginateErrorW",
+            "RoInitialize",
+            "WindowsCreateString",
+            "WaitOnAddress",
+            "WakeByAddressAll",
+            "WakeByAddressSingle",
+            "ProcessPrng",
+            "bcryptprimitives.dll",
+            "d3d12.dll",
+            "dxcore.dll",
+            "api-ms-win-core-path-l1-1-0.dll",
+            "api-ms-win-core-winrt-l1-1-0.dll",
+            "api-ms-win-appmodel-runtime-l1-1-0.dll",
+            "api-ms-win-core-synch-l1-2-0.dll",
+            "api-ms-win-shcore-scaling-l1-1-1.dll"
+          )
+          $found = @($forbidden | Where-Object { $imports -match [regex]::Escape($_) })
+          if ($found.Count -gt 0) {
+            $lines = $imports -split "`r?`n"
+            for ($i = 0; $i -lt $lines.Length; $i++) {
+              if ($lines[$i] -match 'combase\.dll') {
+                $start = [Math]::Max(0, $i - 2)
+                $end = [Math]::Min($lines.Length - 1, $i + 12)
+                Write-Host "Import table context for combase.dll:"
+                $lines[$start..$end] | ForEach-Object { Write-Host $_ }
+              }
+            }
+            throw "Windows 7-incompatible static imports found: $($found -join ', ')"
+          }
+          Write-Host "Static import audit passed for the Windows 7 launcher."
+          Get-Item "Horizon-Windows7-Setup.exe" | Select-Object Name,Length
+
+      - name: Verify official Microsoft sign-in configuration is embedded
+        shell: pwsh
+        run: |
+          $clientId = $env:HORIZON_MSA_CLIENT_ID
+          if ([string]::IsNullOrWhiteSpace($clientId)) { throw "The official Horizon Microsoft client ID is not configured" }
+          $binary = [System.IO.File]::ReadAllBytes("Horizon-Windows7-Setup.exe")
+          $binaryText = [System.Text.Encoding]::ASCII.GetString($binary)
+          if (-not $binaryText.Contains($clientId)) { throw "The official Horizon Microsoft client ID was not embedded in the launcher" }
+          Write-Host "The official Horizon Microsoft sign-in client ID is embedded."
+
+      - name: Smoke-test per-user setup and uninstall
+        shell: pwsh
+        run: |
+          $installRoot = Join-Path $env:RUNNER_TEMP "HorizonWin7SetupSmoke"
+          $installedDir = Join-Path $installRoot "Horizon Launcher"
+          $installedExe = Join-Path $installedDir "horizon-launcher.exe"
+          $setupExe = (Resolve-Path ".\Horizon-Windows7-Setup.exe").Path
+          $setup = Start-Process -FilePath $setupExe -ArgumentList @("setup", "--quiet", "--dir", $installRoot, "--desktop-shortcut") -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "The setup executable failed with exit code $($setup.ExitCode)" }
+          if (-not (Test-Path $installedExe)) { throw "The installed launcher was not copied to $installedExe" }
+          $stdoutFile = Join-Path $env:RUNNER_TEMP "horizon-uninstall.stdout"
+          $stderrFile = Join-Path $env:RUNNER_TEMP "horizon-uninstall.stderr"
+          $uninstall = Start-Process -FilePath $installedExe -ArgumentList @("uninstall", "--quiet") -Wait -PassThru -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
+          $uninstallOutput = (Get-Content $stdoutFile -Raw -ErrorAction SilentlyContinue) + (Get-Content $stderrFile -Raw -ErrorAction SilentlyContinue)
+          if ($uninstallOutput) { Write-Host $uninstallOutput }
+          if ($uninstall.ExitCode -ne 0) { throw "The uninstall command failed with exit code $($uninstall.ExitCode)" }
+          if ($uninstallOutput -match "Not removed:") { throw "The uninstaller reported files or registry entries it could not remove" }
+          if (Test-Path $installedExe) { throw "The launcher executable remains after uninstall" }
+          if (Test-Path $installedDir) { throw "The launcher install folder remains after uninstall" }
+          $cleanupDeadline = (Get-Date).AddSeconds(35)
+          $asideFiles = @()
+          do {
+            $asideFiles = @(Get-ChildItem -LiteralPath $installRoot -Filter "horizon-launcher-uninstall-*.exe" -File -ErrorAction SilentlyContinue)
+            if ($asideFiles.Count -gt 0) { Start-Sleep -Milliseconds 500 }
+          } while ($asideFiles.Count -gt 0 -and (Get-Date) -lt $cleanupDeadline)
+          if ($asideFiles.Count -gt 0) {
+            Get-ChildItem -LiteralPath $installRoot -Filter "horizon-launcher-uninstall-cleanup-*.log" -File -ErrorAction SilentlyContinue |
+              ForEach-Object { Get-Content $_.FullName -Raw }
+            throw "The detached cleanup did not remove the renamed launcher executable: $($asideFiles.Name -join ', ')"
+          }
+          $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\HorizonLauncher"
+          if (Test-Path $uninstallKey) { throw "The uninstall registry entry remains after uninstall" }
+          $ownKey = "HKCU:\Software\Horizon\Launcher"
+          if (Test-Path $ownKey) { throw "The launcher private registry entry remains after uninstall" }
+          Write-Host "Per-user install and uninstall smoke test passed."
+
+      - name: Upload Windows 7 setup executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: Horizon-Windows7-Setup
+          path: Horizon-Windows7-Setup.exe
+          if-no-files-found: error
+          retention-days: 14
