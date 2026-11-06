@@ -126,11 +126,14 @@ def patch_factory_cache(path: Path) -> None:
     type CoIncrementMTAUsage = extern "system" fn(cookie: *mut *mut c_void) -> crate::HRESULT;
 
 """
-    marker = "    type DllGetActivationFactory =\n"
+    marker = re.compile(r"(?m)^([ \t]*)type DllGetActivationFactory =\n")
     if aliases.strip() not in content:
-        if content.count(marker) != 1:
+        matches = list(marker.finditer(content))
+        if len(matches) != 1:
             raise SystemExit("Could not locate factory_cache function-pointer aliases.")
-        content = content.replace(marker, aliases + marker, 1)
+        indent = matches[0].group(1)
+        alias_text = "\n".join(indent + line if line else line for line in aliases.rstrip("\n").split("\n")) + "\n"
+        content = content[:matches[0].start()] + alias_text + content[matches[0].start():]
     path.write_text(content, encoding="utf-8", newline="\n")
 
 for package_dir in source_dirs:
