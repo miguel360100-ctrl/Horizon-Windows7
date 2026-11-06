@@ -23,7 +23,7 @@ use windows::{
         System::{
             Com::*, Diagnostics::Debug::MessageBeep, LibraryLoader::*, Ole::*, SystemServices::*,
         },
-        UI::{Controls::*, HiDpi::*, Input::KeyboardAndMouse::*, Shell::*, WindowsAndMessaging::*},
+        UI::{Controls::*, Input::KeyboardAndMouse::*, Shell::*, WindowsAndMessaging::*},
     },
     core::*,
 };
@@ -127,8 +127,52 @@ impl WindowsWindowState {
         draw_coordinator: Rc<DrawCoordinator>,
     ) -> Result<Self> {
         let scale_factor = {
-            let monitor_dpi = unsafe { GetDpiForWindow(hwnd) } as f32;
-            monitor_dpi / USER_DEFAULT_SCREEN_DPI as f32
+            #[cfg(feature = "windows7-compat")]
+            {
+                let dc = unsafe { GetDC(Some(hwnd)) };
+                if dc.is_invalid() {
+                    1.0
+                } else {
+                    let dpi = unsafe { GetDeviceCaps(Some(dc), LOGPIXELSX) };
+                    unsafe { ReleaseDC(Some(hwnd), dc) };
+                    if dpi > 0 {
+                        dpi as f32 / USER_DEFAULT_SCREEN_DPI as f32
+                    } else {
+                        1.0
+                    }
+                }
+            }
+            #[cfg(not(feature = "windows7-compat"))]
+            {
+                // Resolve GetDpiForWindow dynamically: it is not exported by
+                // Windows 7, but newer Windows versions retain per-window DPI.
+                let monitor_dpi = unsafe {
+                    let user32 = GetModuleHandleA(PCSTR::from_raw(b"user32.dll\0".as_ptr())).ok();
+                    let get_dpi = user32.and_then(|module| {
+                        GetProcAddress(module, PCSTR::from_raw(b"GetDpiForWindow\0".as_ptr()))
+                    });
+                    let dpi = get_dpi.map(|entry| {
+                        type GetDpiForWindowFn = unsafe extern "system" fn(HWND) -> u32;
+                        let get_dpi_for_window: GetDpiForWindowFn = std::mem::transmute(entry);
+                        get_dpi_for_window(hwnd)
+                    }).unwrap_or(0);
+
+                    if dpi > 0 {
+                        dpi as f32
+                    } else {
+                        // Windows 7 fallback (also covers an unexpected missing export).
+                        let dc = GetDC(Some(hwnd));
+                        if dc.is_invalid() {
+                            USER_DEFAULT_SCREEN_DPI as f32
+                        } else {
+                            let dpi = GetDeviceCaps(Some(dc), LOGPIXELSX);
+                            ReleaseDC(Some(hwnd), dc);
+                            if dpi > 0 { dpi as f32 } else { USER_DEFAULT_SCREEN_DPI as f32 }
+                        }
+                    }
+                };
+                monitor_dpi / USER_DEFAULT_SCREEN_DPI as f32
+            }
         };
         let origin = logical_point(window_params.x as f32, window_params.y as f32, scale_factor);
         let logical_size = {

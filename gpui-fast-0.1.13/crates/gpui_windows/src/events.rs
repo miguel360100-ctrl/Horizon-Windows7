@@ -6,19 +6,52 @@ use windows::{
     Win32::{
         Foundation::*,
         Graphics::Gdi::*,
-        System::SystemServices::*,
+        System::{LibraryLoader::*, SystemServices::*},
         UI::{
             Controls::*,
-            HiDpi::*,
             Input::{Ime::*, KeyboardAndMouse::*},
             WindowsAndMessaging::*,
         },
     },
-    core::PCWSTR,
+    core::{PCSTR, PCWSTR},
 };
 
 use crate::*;
 use gpui::*;
+
+/// Query window DPI using GDI, which is available on Windows 7.
+/// GetDpiForWindow is only exported on Windows 10 and causes a loader failure.
+fn get_dpi_for_window_compat(hwnd: HWND) -> u32 {
+    // Preserve per-window scaling on newer Windows without importing an API
+    // that the Windows 7 loader cannot resolve.
+    unsafe {
+        let user32 = GetModuleHandleA(PCSTR::from_raw(b"user32.dll\0".as_ptr())).ok();
+        let entry = user32.and_then(|module| {
+            GetProcAddress(module, PCSTR::from_raw(b"GetDpiForWindow\0".as_ptr()))
+        });
+        if let Some(entry) = entry {
+            type GetDpiForWindowFn = unsafe extern "system" fn(HWND) -> u32;
+            let get_dpi_for_window: GetDpiForWindowFn = std::mem::transmute(entry);
+            let dpi = get_dpi_for_window(hwnd);
+            if dpi > 0 {
+                return dpi;
+            }
+        }
+    }
+
+    // Windows 7 fallback: system DPI from a window DC.
+    let dc = unsafe { GetDC(Some(hwnd)) };
+    if dc.is_invalid() {
+        return USER_DEFAULT_SCREEN_DPI;
+    }
+    let dpi = unsafe { GetDeviceCaps(Some(dc), LOGPIXELSX) };
+    unsafe { ReleaseDC(Some(hwnd), dc) };
+    if dpi > 0 {
+        dpi as u32
+    } else {
+        USER_DEFAULT_SCREEN_DPI
+    }
+}
 
 pub(crate) const WM_GPUI_CURSOR_STYLE_CHANGED: u32 = WM_USER + 1;
 pub(crate) const WM_GPUI_CLOSE_ONE_WINDOW: u32 = WM_USER + 2;
@@ -785,7 +818,7 @@ impl WindowsWindowInner {
             let result = DefWindowProcW(handle, WM_NCCALCSIZE, wparam, lparam);
             (*params).rgrc[0].top = saved_top;
             if self.state.is_maximized() {
-                let dpi = GetDpiForWindow(handle);
+                let dpi = get_dpi_for_window_compat(handle);
                 (*params).rgrc[0].top += get_frame_thicknessx(dpi);
             }
             Some(result.0 as isize)
@@ -993,7 +1026,7 @@ impl WindowsWindowInner {
             return drag_area;
         }
 
-        let dpi = unsafe { GetDpiForWindow(handle) };
+        let dpi = get_dpi_for_window_compat(handle);
         // We do not use the OS title bar, so the default `DefWindowProcW` will only register a 1px edge for resizes
         // We need to calculate the frame thickness ourselves and do the hit test manually.
         let frame_y = get_frame_thicknessx(dpi);
@@ -1790,19 +1823,51 @@ pub(crate) fn current_capslock() -> Capslock {
     Capslock { on }
 }
 
-// there is some additional non-visible space when talking about window
-// borders on Windows:
-// - SM_CXSIZEFRAME: The resize handle.
-// - SM_CXPADDEDBORDER: Additional border space that isn't part of the resize handle.
+// GetSystemMetricsForDpi is only exported on Windows 10 1607+. Resolve it
+// dynamically so newer Windows retain per-window DPI behavior without making
+// that entry point a load-time requirement on Windows 7.
+fn get_system_metrics_for_dpi_compat(
+    index: SYSTEM_METRICS_INDEX,
+    dpi: u32,
+) -> i32 {
+    type GetSystemMetricsForDpiFn =
+        unsafe extern "system" fn(SYSTEM_METRICS_INDEX, u32) -> i32;
+
+    unsafe {
+        let user32 = GetModuleHandleA(PCSTR::from_raw(b"user32.dll\0".as_ptr()))
+            .ok();
+        if let Some(user32) = user32
+            && let Some(entry) = GetProcAddress(
+                user32,
+                PCSTR::from_raw(b"GetSystemMetricsForDpi\0".as_ptr()),
+            )
+        {
+            let get_system_metrics: GetSystemMetricsForDpiFn = std::mem::transmute(entry);
+            return get_system_metrics(index, dpi);
+        }
+
+        // Windows 7 has system-wide DPI. GetSystemMetrics already returns
+        // metrics in that DPI context, so it is the correct fallback.
+        GetSystemMetrics(index)
+    }
+}
+
+// There is some additional non-visible space around window borders:
+// - SM_CXSIZEFRAME / SM_CYSIZEFRAME: The resize handle.
+// - SM_CXPADDEDBORDER: Additional border space not part of the resize handle.
 fn get_frame_thicknessx(dpi: u32) -> i32 {
-    let resize_frame_thickness = unsafe { GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) };
-    let padding_thickness = unsafe { GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi) };
+    let resize_frame_thickness =
+        get_system_metrics_for_dpi_compat(SM_CXSIZEFRAME, dpi);
+    let padding_thickness =
+        get_system_metrics_for_dpi_compat(SM_CXPADDEDBORDER, dpi);
     resize_frame_thickness + padding_thickness
 }
 
 fn get_frame_thicknessy(dpi: u32) -> i32 {
-    let resize_frame_thickness = unsafe { GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) };
-    let padding_thickness = unsafe { GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi) };
+    let resize_frame_thickness =
+        get_system_metrics_for_dpi_compat(SM_CYSIZEFRAME, dpi);
+    let padding_thickness =
+        get_system_metrics_for_dpi_compat(SM_CXPADDEDBORDER, dpi);
     resize_frame_thickness + padding_thickness
 }
 

@@ -4,7 +4,10 @@ mod clipboard;
 mod destination_list;
 mod dialog;
 mod direct_manipulation;
+#[cfg(not(feature = "windows7-compat"))]
 mod direct_write;
+#[cfg(feature = "windows7-compat")]
+mod gdi_text;
 mod directx_atlas;
 mod directx_devices;
 mod directx_renderer;
@@ -23,7 +26,10 @@ mod wrapper;
 
 pub(crate) use clipboard::*;
 pub(crate) use destination_list::*;
+#[cfg(not(feature = "windows7-compat"))]
 pub(crate) use direct_write::*;
+#[cfg(feature = "windows7-compat")]
+pub(crate) use gdi_text::*;
 pub(crate) use directx_atlas::*;
 pub(crate) use directx_devices::*;
 pub(crate) use directx_renderer::FontInfo;

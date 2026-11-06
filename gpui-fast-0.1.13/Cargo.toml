@@ -360,7 +360,6 @@ version = "0.62"
 features = [
     "Data_Xml_Dom",
     "Foundation_Numerics",
-    "Globalization_DateTimeFormatting",
     "Storage_Search",
     "Storage_Streams",
     "System_Threading",
