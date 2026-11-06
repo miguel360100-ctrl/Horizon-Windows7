@@ -11,6 +11,7 @@ on:
       - ".github/workflows/horizon-game-win7.yml"
       - "tools/patch-win7-game-graphics.py"
       - "tools/patch-win7-windows-core.py"
+      - "tools/test_patch_win7_windows_core.py"
 
 permissions:
   contents: read
@@ -67,6 +68,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Could not fetch the locked Windows game dependencies" }
           python ../win7-port/tools/patch-win7-windows-core.py
           if ($LASTEXITCODE -ne 0) { throw "Could not redirect legacy COM imports to ole32.dll for Windows 7" }
+
+      - name: Test Windows 7 COM import patch regression cases
+        working-directory: horizon
+        shell: pwsh
+        run: |
+          python ../win7-port/tools/test_patch_win7_windows_core.py
+          if ($LASTEXITCODE -ne 0) { throw "The Windows 7 COM import patch regression tests failed" }
 
       - name: Check the original native game client for Windows 7
         working-directory: horizon
