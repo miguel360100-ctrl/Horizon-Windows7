@@ -53,24 +53,24 @@ def remove_import(path: Path, function: str) -> None:
 
 def patch_factory_cache(path: Path) -> None:
     content = path.read_text(encoding="utf-8")
-    old = """            let mut get_com_factory = || {
-                crate::HRESULT(RoGetActivationFactory(
-                    transmute_copy(&name),
-                    &I::IID as *const _ as _,
-                    &mut factory as *mut _ as *mut _,
-                ))
-            };
-            let mut code = get_com_factory();
+    old = """    let mut get_com_factory = || {
+        crate::HRESULT(RoGetActivationFactory(
+            transmute_copy(&name),
+            &I::IID as *const _ as _,
+            &mut factory as *mut _ as *mut _,
+        ))
+    };
+    let mut code = get_com_factory();
 
-            // If RoGetActivationFactory fails because combase hasn't been loaded yet then load combase
-            // automatically so that it "just works" for apartment-agnostic code.
-            if code == CO_E_NOTINITIALIZED {
-                let mut cookie = core::ptr::null_mut();
-                CoIncrementMTAUsage(&mut cookie);
+    // If RoGetActivationFactory fails because combase hasn't been loaded yet then load combase
+    // automatically so that it "just works" for apartment-agnostic code.
+    if code == CO_E_NOTINITIALIZED {
+        let mut cookie = core::ptr::null_mut();
+        CoIncrementMTAUsage(&mut cookie);
 
-                // Now try a second time to get the activation factory via the OS.
-                code = get_com_factory();
-            }"""
+        // Now try a second time to get the activation factory via the OS.
+        code = get_com_factory();
+    }"""
     new = """            let mut get_com_factory = || {
                 // WinRT activation is unavailable on Windows 7. Resolve the API
                 // dynamically so the binary has no static WinRT API-set import.
