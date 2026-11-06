@@ -5,7 +5,6 @@ use smallvec::SmallVec;
 use windows::{
     Win32::{
         Foundation::PROPERTYKEY,
-        Globalization::u_strlen,
         System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance, StructuredStorage::PROPVARIANT},
         UI::{
             Controls::INFOTIPSIZE,
@@ -21,6 +20,34 @@ use windows::{
 };
 
 use gpui::{Action, MenuItem, SharedString};
+
+// Windows 10's ICU DLL is not part of Windows 7. This buffer is filled by
+// IShellLinkW::GetDescription and is NUL-terminated, so its length can be found
+// without the newer u_strlen import from icuuc.dll.
+#[inline]
+fn utf16_nul_terminated_len(value: &[u16]) -> usize {
+    value.iter().position(|&unit| unit == 0).unwrap_or(value.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::utf16_nul_terminated_len;
+
+    #[test]
+    fn utf16_length_stops_at_the_first_nul() {
+        assert_eq!(utf16_nul_terminated_len(&[65, 66, 0, 67]), 2);
+    }
+
+    #[test]
+    fn utf16_length_handles_an_empty_buffer() {
+        assert_eq!(utf16_nul_terminated_len(&[]), 0);
+    }
+
+    #[test]
+    fn utf16_length_handles_a_full_non_terminated_buffer() {
+        assert_eq!(utf16_nul_terminated_len(&[65, 66]), 2);
+    }
+}
 
 pub(crate) struct JumpList {
     pub(crate) dock_menus: Vec<DockMenuItem>,
@@ -100,8 +127,8 @@ fn create_destination_list() -> anyhow::Result<(ICustomDestinationList, Vec<Smal
             // see https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-ishelllinkw-getdescription
             let mut buffer = [0u16; INFOTIPSIZE as usize];
             unsafe { shell_link.GetDescription(&mut buffer)? };
-            let len = unsafe { u_strlen(buffer.as_ptr()) };
-            String::from_utf16_lossy(&buffer[..len as usize])
+            let len = utf16_nul_terminated_len(&buffer);
+            String::from_utf16_lossy(&buffer[..len])
         };
         let args = description.split('\n').map(PathBuf::from).collect();
 
