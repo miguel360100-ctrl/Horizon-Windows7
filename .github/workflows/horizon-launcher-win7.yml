@@ -15,6 +15,16 @@ on:
       - "tools/patch-win7-uninstaller.py"
       - "tools/patch-win7-windows-core.py"
       - "tools/test_patch_win7_windows_core.py"
+  pull_request:
+    branches: [main]
+    paths:
+      - "gpui-fast-0.1.13/**"
+      - ".github/workflows/horizon-launcher-win7.yml"
+      - "tools/patch-win7-import.py"
+      - "tools/patch-win7-launcher-graphics.py"
+      - "tools/patch-win7-uninstaller.py"
+      - "tools/patch-win7-windows-core.py"
+      - "tools/test_patch_win7_windows_core.py"
 
 permissions:
   contents: read
