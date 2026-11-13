@@ -80,7 +80,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: miguel360100-ctrl/Horizon-Windows7
-          ref: win7-compat-dev
+          ref: ${{ github.head_ref || github.ref_name }}
           path: win7-port
 
       - name: Install nightly Rust and source
