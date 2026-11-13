@@ -15,6 +15,7 @@ on:
       - "tools/patch-win7-uninstaller.py"
       - "tools/patch-win7-windows-core.py"
       - "tools/patch-win7-power-notifications.py"
+      - "tools/patch-win7-launcher-diagnostics.py"
       - "tools/test_patch_win7_windows_core.py"
   pull_request:
     branches: [main]
@@ -26,6 +27,7 @@ on:
       - "tools/patch-win7-uninstaller.py"
       - "tools/patch-win7-windows-core.py"
       - "tools/patch-win7-power-notifications.py"
+      - "tools/patch-win7-launcher-diagnostics.py"
       - "tools/test_patch_win7_windows_core.py"
 
 permissions:
@@ -154,6 +156,15 @@ jobs:
           python win7-port/tools/patch-win7-uninstaller.py horizon/launcher/src/installer.rs
           if ($LASTEXITCODE -ne 0) { throw "Could not make the Windows 7 uninstaller safe across volumes" }
           Write-Host "The original import UI installs complete Win7 packages; Vulkan crash recovery falls back to OpenGL."
+
+      - name: Add silent startup diagnostics without changing the launcher UI
+        shell: pwsh
+        run: |
+          python win7-port/tools/patch-win7-launcher-diagnostics.py --self-test
+          if ($LASTEXITCODE -ne 0) { throw "The launcher startup diagnostic patch self-test failed" }
+          python win7-port/tools/patch-win7-launcher-diagnostics.py horizon/launcher/src/main.rs
+          if ($LASTEXITCODE -ne 0) { throw "Could not instrument the original Horizon launcher startup path" }
+          Write-Host "Startup stages and panic details will be written to %LOCALAPPDATA%\Horizon Launcher\startup-diagnostic.log (or TEMP fallback). The original UI is unchanged."
 
       # Keep the requested distribution filename while preserving the original setup
       # detection and wizard: only the internal executable-name check is extended.
